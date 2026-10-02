@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Microlins Potirendaba | Gestão Financeira de Contratos e Modalidades</title>
+  <meta name="description" content="Sistema de gestão financeira da Microlins Potirendaba com visualização de modalidades de pagamento e controle de vencimentos híbrido.">
+
+  <!-- Favicon SVG Microlins -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f3b7d'/><path d='M8 24V8h4l4 7 4-7h4v16h-4v-9l-4 7h-0.5l-4-7v9H8z' fill='%23ffffff'/><rect x='26' y='8' width='3' height='16' fill='%23d91a2a'/></svg>">
+
+  <!-- CDNs Externos Seguros (SheetJS & Supabase) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+  <!-- Folhas de Estilo Modulares -->
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/table.css">
+</head>
+<body>
+
+  <!-- ==============================================================================
+       CABEÇALHO PRINCIPAL
+       ============================================================================== -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <div class="brand-badge">
+          <span>MICROLINS</span>
+        </div>
+        <div class="brand-info">
+          <h1>
+            Gestão Financeira de Contratos
+            <span class="unit-tag">Potirendaba</span>
+          </h1>
+          <p>Controle de Vencimentos e Modalidades de Pagamento</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Indicador de Status Supabase / Local -->
+        <div id="cloudStatusIndicator" class="status-indicator status-offline" title="Verificando conexão...">
+          <span class="status-pulse"></span>
+          <span>Conectando...</span>
+        </div>
+
+        <!-- Botão Configurações -->
+        <button id="btnConfiguracoes" class="btn btn-secondary btn-sm" title="Configurações e Nuvem">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span>Nuvem / Opções</span>
+        </button>
+
+        <!-- Botão Exportar Excel -->
+        <button id="btnExportarExcel" class="btn btn-secondary btn-sm" title="Exportar planilha com vencimentos preenchidos">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span>Exportar Excel</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==============================================================================
+       CONTEÚDO PRINCIPAL
+       ============================================================================== -->
+  <main class="app-container">
+
+    <!-- Grid de Métricas Principais -->
+    <section class="metrics-grid" aria-label="Métricas Principais">
+      <div class="metric-card metric-card-total">
+        <div class="metric-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+        </div>
+        <div class="metric-content">
+          <span class="metric-label">Total de Contratos</span>
+          <span id="metricTotalContratos" class="metric-value">0</span>
+        </div>
+      </div>
+
+      <div class="metric-card metric-card-active">
+        <div class="metric-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+          </svg>
+        </div>
+        <div class="metric-content">
+          <span class="metric-label">Contratos Ativos</span>
+          <span id="metricContratosAtivos" class="metric-value">0 (0%)</span>
+        </div>
+      </div>
+
+      <div class="metric-card metric-card-defined">
+        <div class="metric-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+            <circle cx="12" cy="15" r="2"></circle>
+          </svg>
+        </div>
+        <div class="metric-content">
+          <span class="metric-label">Vencimento Definido</span>
+          <span id="metricComVencimento" class="metric-value">0 (0%)</span>
+        </div>
+      </div>
+
+      <div class="metric-card metric-card-pending">
+        <div class="metric-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+        </div>
+        <div class="metric-content">
+          <span class="metric-label">Vencimento Pendente</span>
+          <span id="metricSemVencimento" class="metric-value">0</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Banner de Upload / Drag & Drop do Excel -->
+    <div id="excelDropzone" class="import-banner" title="Clique ou arraste o arquivo Relatório Controle Financeiro.xlsx aqui">
+      <input type="file" id="excelFileInput" accept=".xlsx, .xls" style="display: none;">
+      <div class="import-banner-left">
+        <div class="import-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+        </div>
+        <div class="import-text">
+          <h3>Importar Planilha de Controle Financeiro (.xlsx)</h3>
+          <p>Arraste o arquivo do relatório aqui ou clique para selecionar. As datas de vencimento cadastradas são 100% preservadas.</p>
+        </div>
+      </div>
+      <div class="import-banner-right">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); document.getElementById('excelFileInput').click();">
+          Selecionar Arquivo
+        </button>
+      </div>
+    </div>
+
+    <!-- Card Principal: Tabela de Dados e Filtros -->
+    <section class="table-card">
+      
+      <!-- Barra de Ferramentas e Filtros -->
+      <div class="table-toolbar">
+        <div class="toolbar-top-row">
+          <!-- Campo de Busca -->
+          <div class="search-box-wrapper">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" id="inputBusca" class="search-input" placeholder="Buscar por aluno, código do contrato ou consultor...">
+          </div>
+
+          <div class="toolbar-actions">
+            <!-- Botão Novo Aluno Manual -->
+            <button id="btnNovoAluno" class="btn btn-primary btn-sm">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span>+ Novo Aluno</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Filtros Avançados -->
+        <div class="toolbar-filters-row">
+          <!-- Filtro Status -->
+          <div class="filter-group">
+            <label for="selectFiltroStatus" class="filter-label">Status:</label>
+            <select id="selectFiltroStatus" class="filter-select">
+              <option value="Todos">Todos</option>
+              <option value="Ativo">Ativo</option>
+              <option value="Inativo/Desistente">Inativo / Desistente</option>
+            </select>
+          </div>
+
+          <!-- Filtro Modalidade de Pagamento -->
+          <div class="filter-group">
+            <label for="selectFiltroModalidade" class="filter-label">Modalidade:</label>
+            <select id="selectFiltroModalidade" class="filter-select">
+              <option value="Todas">Todas as formas</option>
+              <option value="PIX">PIX</option>
+              <option value="Boleto">Boleto</option>
+              <option value="Cartão de Crédito">Cartão de Crédito</option>
+              <option value="Cartão de Débito">Cartão de Débito</option>
+              <option value="Dinheiro">Dinheiro</option>
+              <option value="Carnê">Carnê</option>
+              <option value="Depósito Bancário">Depósito Bancário</option>
+              <option value="Cheque">Cheque</option>
+              <option value="Sem registro">Sem registro</option>
+            </select>
+          </div>
+
+          <!-- Filtro Vencimento -->
+          <div class="filter-group">
+            <label for="selectFiltroVencimento" class="filter-label">Vencimento:</label>
+            <select id="selectFiltroVencimento" class="filter-select">
+              <option value="Todos">Todos</option>
+              <option value="Com Vencimento">Com Vencimento Definido</option>
+              <option value="Pendente">Pendente / Sem Vencimento</option>
+            </select>
+          </div>
+
+          <button id="btnLimparFiltros" class="btn-clear-filters" type="button">Limpar Filtros</button>
+        </div>
+      </div>
+
+      <!-- Tabela com Scroll Responsivo -->
+      <div class="table-responsive-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th data-sort="codigo" style="width: 110px;">
+                <div class="th-content">
+                  <span>Código</span>
+                  <svg class="sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 15l5 5 5-5M7 9l5-5 5 5"/></svg>
+                </div>
+              </th>
+              <th data-sort="aluno">
+                <div class="th-content">
+                  <span>Aluno / Consultor</span>
+                  <svg class="sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 15l5 5 5-5M7 9l5-5 5 5"/></svg>
+                </div>
+              </th>
+              <th data-sort="status_contrato" style="width: 120px;">
+                <div class="th-content">
+                  <span>Status</span>
+                  <svg class="sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 15l5 5 5-5M7 9l5-5 5 5"/></svg>
+                </div>
+              </th>
+              <th data-sort="data_vencimento" style="width: 160px;">
+                <div class="th-content">
+                  <span>Vencimento</span>
+                  <svg class="sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 15l5 5 5-5M7 9l5-5 5 5"/></svg>
+                </div>
+              </th>
+              <th>
+                <span>Modalidades de Pagamento</span>
+              </th>
+              <th data-sort="valor_parcela" style="width: 160px;">
+                <div class="th-content">
+                  <span>Parcelas</span>
+                  <svg class="sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 15l5 5 5-5M7 9l5-5 5 5"/></svg>
+                </div>
+              </th>
+              <th style="width: 60px; text-align: right;">
+                <span>Ações</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody id="tabelaContratosBody">
+            <!-- As linhas são inseridas dinamicamente via JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Barra de Paginação -->
+      <div class="table-pagination-bar">
+        <div class="pagination-left">
+          <span id="paginationCountLabel" class="pagination-count">Carregando...</span>
+          <div class="pagination-per-page">
+            <span>Linhas por página:</span>
+            <select id="selectItensPorPagina">
+              <option value="10">10</option>
+              <option value="25" selected>25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="paginationContainer" class="pagination-controls">
+          <!-- Botões de página gerados dinamicamente -->
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ==============================================================================
+       POPOVER RÁPIDO DE DATA DE VENCIMENTO (SUSPENSO / FLUTUANTE)
+       ============================================================================== -->
+  <div id="dueDatePopover" class="due-date-popover">
+    <div class="popover-header">
+      <span class="popover-title">Definir Vencimento</span>
+    </div>
+    
+    <!-- Dias Pré-definidos rápidos -->
+    <div class="popover-grid-days">
+      <button type="button" class="btn-popover-preset" data-day="05">05</button>
+      <button type="button" class="btn-popover-preset" data-day="10">10</button>
+      <button type="button" class="btn-popover-preset" data-day="15">15</button>
+      <button type="button" class="btn-popover-preset" data-day="20">20</button>
+      <button type="button" class="btn-popover-preset" data-day="25">25</button>
+      <button type="button" class="btn-popover-preset" data-day="30">30</button>
+    </div>
+
+    <!-- Entrada Livre Personalizada -->
+    <div class="popover-custom-section">
+      <label for="popoverCustomInput" class="popover-custom-label">Outro dia ou data:</label>
+      <div class="popover-input-group">
+        <input type="text" id="popoverCustomInput" class="popover-input" placeholder="Ex: Dia 12 ou 10/11">
+        <button type="button" id="btnSaveCustomDue" class="btn-popover-save">OK</button>
+      </div>
+    </div>
+
+    <div class="popover-footer">
+      <button type="button" id="btnClearDue" class="btn-popover-clear">Remover Vencimento</button>
+    </div>
+  </div>
+
+  <!-- ==============================================================================
+       MODAL 1: CADASTRAR NOVO ALUNO / CONTRATO
+       ============================================================================== -->
+  <div id="modalNovoAluno" class="modal-overlay">
+    <div class="modal-dialog modal-dialog-large">
+      <div class="modal-header">
+        <h3>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="8.5" cy="7.5" r="4"></circle>
+            <line x1="20" y1="8" x2="20" y2="14"></line>
+            <line x1="23" y1="11" x2="17" y2="11"></line>
+          </svg>
+          <span>Cadastrar Novo Contrato / Aluno</span>
+        </h3>
+        <button class="modal-close-btn" data-modal-close aria-label="Fechar">&times;</button>
+      </div>
+      <form id="formNovoAluno">
+        <div class="modal-body">
+          <div class="form-grid">
+            
+            <div class="form-group">
+              <label for="novoCodigo" class="form-label">Código do Contrato <span class="required">*</span></label>
+              <input type="number" id="novoCodigo" class="form-input" placeholder="Ex: 4643900" required>
+            </div>
+
+            <div class="form-group">
+              <label for="novoStatus" class="form-label">Status do Contrato</label>
+              <select id="novoStatus" class="form-select">
+                <option value="Ativo" selected>Ativo</option>
+                <option value="Inativo/Desistente">Inativo / Desistente</option>
+              </select>
+            </div>
+
+            <div class="form-group form-group-full">
+              <label for="novoAluno" class="form-label">Nome Completo do Aluno <span class="required">*</span></label>
+              <input type="text" id="novoAluno" class="form-input" placeholder="Ex: Lucas Henrique de Souza" required>
+            </div>
+
+            <div class="form-group">
+              <label for="novoVencimento" class="form-label">Data de Vencimento</label>
+              <input type="text" id="novoVencimento" class="form-input" placeholder="Ex: Dia 10 ou 10/10/2026">
+              <div class="preset-days-chips">
+                <button type="button" class="btn-preset-day" data-day="Dia 05">05</button>
+                <button type="button" class="btn-preset-day" data-day="Dia 10">10</button>
+                <button type="button" class="btn-preset-day" data-day="Dia 15">15</button>
+                <button type="button" class="btn-preset-day" data-day="Dia 20">20</button>
+                <button type="button" class="btn-preset-day" data-day="Dia 25">25</button>
+                <button type="button" class="btn-preset-day" data-day="Dia 30">30</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="novoConsultor" class="form-label">Colaborador Consultor</label>
+              <input type="text" id="novoConsultor" class="form-input" placeholder="Ex: Severina dos Santos Silva">
+            </div>
+
+            <div class="form-group">
+              <label for="novoQtdParcelas" class="form-label">Quantidade de Parcelas</label>
+              <input type="number" id="novoQtdParcelas" class="form-input" placeholder="Ex: 24">
+            </div>
+
+            <div class="form-group">
+              <label for="novoValorParcela" class="form-label">Valor Parcela Líquido (R$)</label>
+              <input type="number" step="0.01" id="novoValorParcela" class="form-input" placeholder="Ex: 199.90">
+            </div>
+
+            <div class="form-group form-group-full">
+              <label class="form-label">Modalidades de Pagamento Utilizadas</label>
+              <div class="checkbox-grid">
+                <label class="checkbox-item"><input type="checkbox" name="novoFormaPagamento" value="PIX"> PIX</label>
+                <label class="checkbox-item"><input type="checkbox" name="novoFormaPagamento" value="PIX - QR Code"> PIX QR Code</label>
+                <label class="checkbox-item"><input type="checkbox" name="novoFormaPagamento" value="Boleto"> Boleto</label>
+                <label class="checkbox-item"><input type="checkbox" name="novoFormaPagamento" value="Cartão de Crédito"> Cartão de Crédito</label>
+                <label class="checkbox-item"><input type="checkbox" name="novoFormaPagamento" value="Cartão de Débito"> Cartão de Débito</label>
+                <label class="checkbox-item"><input type="checkbox" name="novoFormaPagamento" value="Dinheiro"> Dinheiro</label>
+                <label class="checkbox-item"><input type="checkbox" name="novoFormaPagamento" value="Carnê"> Carnê</label>
+                <label class="checkbox-item"><input type="checkbox" name="novoFormaPagamento" value="Depósito Bancário"> Depósito Bancário</label>
+                <label class="checkbox-item"><input type="checkbox" name="novoFormaPagamento" value="Cheque"> Cheque</label>
+              </div>
+            </div>
+
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-modal-close>Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Aluno</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==============================================================================
+       MODAL 2: CONFIRMAÇÃO DE EXCLUSÃO SEGURA
+       ============================================================================== -->
+  <div id="modalConfirmDelete" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 style="color: var(--accent);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <span>Confirmar Exclusão</span>
+        </h3>
+        <button class="modal-close-btn" data-modal-close aria-label="Fechar">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="delete-warning-box">
+          <svg class="delete-warning-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <div>
+            <p id="deleteModalDescricao">Tem certeza que deseja excluir este contrato? Esta ação removerá o aluno da listagem permanente.</p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-modal-close>Cancelar</button>
+        <button type="button" id="btnConfirmDelete" class="btn btn-accent">Sim, Excluir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==============================================================================
+       MODAL 3: CONFIGURAÇÕES E NUVEM SUPABASE
+       ============================================================================== -->
+  <div id="modalConfiguracoes" class="modal-overlay">
+    <div class="modal-dialog modal-dialog-large">
+      <div class="modal-header">
+        <h3>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+          </svg>
+          <span>Configurações e Nuvem Supabase</span>
+        </h3>
+        <button class="modal-close-btn" data-modal-close aria-label="Fechar">&times;</button>
+      </div>
+      <div class="modal-body">
+        
+        <!-- Status da Conexão Nuvem -->
+        <div class="settings-section">
+          <h4 class="settings-section-title">Status da Conexão</h4>
+          <div class="info-card">
+            <div class="info-card-row">
+              <span class="label">Provedor Ativo:</span>
+              <span id="settingsSyncBadge" class="status-pill status-pill-online">
+                <span class="status-dot"></span> Verificando...
+              </span>
+            </div>
+            <div class="info-card-row">
+              <span class="label">Projeto Supabase:</span>
+              <span class="value font-mono">apfcbkucxjcleqxarlmv.supabase.co</span>
+            </div>
+            <div class="info-card-row">
+              <span class="label">Tabela de Dados:</span>
+              <span class="value font-mono">contratos_financeiro</span>
+            </div>
+            <div class="info-card-row">
+              <span class="label">Total Armazenado:</span>
+              <span id="settingsTotalCount" class="value">0 contratos salvos</span>
+            </div>
+            <div class="info-card-row">
+              <span class="label">Último Sincronismo:</span>
+              <span id="settingsLastSyncTime" class="value" style="font-size: 0.8rem; color: var(--text-muted);">-</span>
+            </div>
+          </div>
+          
+          <div style="display: flex; gap: 10px; margin-top: 12px;">
+            <button type="button" id="btnTestarConexao" class="btn btn-secondary btn-sm">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+              <span>Testar Conexão</span>
+            </button>
+            <button type="button" id="btnSincronizarNuvem" class="btn btn-primary btn-sm">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              <span>Forçar Sincronização com Nuvem</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Backup e Restauração -->
+        <div class="settings-section">
+          <h4 class="settings-section-title">Backup e Restauração de Segurança</h4>
+          <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 12px;">
+            Exporte uma cópia completa dos dados para o seu computador ou restaure de um arquivo de backup anterior.
+          </p>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button type="button" id="btnExportarBackupJson" class="btn btn-secondary btn-sm">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Exportar Backup Completo (JSON)</span>
+            </button>
+            
+            <label class="btn btn-secondary btn-sm" style="cursor: pointer;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              <span>Restaurar Backup (JSON)</span>
+              <input type="file" id="inputImportarBackupJson" accept=".json" style="display: none;">
+            </label>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-modal-close>Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==============================================================================
+       OVERLAY DE CARREGAMENTO GLOBAL
+       ============================================================================== -->
+  <div id="globalLoadingOverlay" class="global-loading-overlay">
+    <div class="loading-card">
+      <div class="loading-spinner"></div>
+      <span id="globalLoadingLabel" class="loading-text">Processando dados...</span>
+    </div>
+  </div>
+
+  <!-- Script Principal com Módulos ES6 -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
