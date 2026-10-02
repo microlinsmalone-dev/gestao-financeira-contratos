@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Automated Test Suite</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+  <h1>Test Suite Runner</h1>
+  <div id="test-results">Running tests...</div>
+
+  <script type="module">
+    import { CONFIG } from './js/config.js';
+    import { storage } from './js/storage.js';
+    import { parseExcelData, importExcelFile } from './js/excel-importer.js';
+    import { renderPaymentBadges, getBadgeConfig } from './js/payment-badges.js';
+
+    const results = [];
+    function assert(name, condition, details = '') {
+      results.push({ name, pass: Boolean(condition), details });
+      console.log((condition ? 'PASS: ' : 'FAIL: ') + name + (details ? ' - ' + details : ''));
+    }
+
+    async function runTests() {
+      try {
+        // Test 1: Config integrity
+        assert('CONFIG exists and has preset days', Array.isArray(CONFIG.PRESET_DAYS) && CONFIG.PRESET_DAYS.length === 6);
+        assert('CONFIG table name is contratos_financeiro', CONFIG.TABLE_NAME === 'contratos_financeiro');
+
+        // Test 2: Payment badges generator
+        const badgesHtml = renderPaymentBadges('Boleto, Dinheiro, PIX');
+        assert('renderPaymentBadges generates 3 badges for Boleto, Dinheiro, PIX', 
+          badgesHtml.includes('badge-boleto') && badgesHtml.includes('badge-dinheiro') && badgesHtml.includes('badge-pix'));
+
+        const qrBadgeHtml = renderPaymentBadges('PIX - QR Code');
+        assert('renderPaymentBadges handles PIX QR Code', qrBadgeHtml.includes('badge-pix') && qrBadgeHtml.includes('PIX QR Code'));
+
+        const emptyBadgeHtml = renderPaymentBadges('');
+        assert('renderPaymentBadges handles empty string as Sem registro', emptyBadgeHtml.includes('badge-sem-registro'));
+
+        // Test 3: Fetch Excel spreadsheet
+        const response = await fetch('Relat%C3%B3rio%20Controle%20Financeiro.xlsx');
+        if (!response.ok) {
+          throw new Error('Falha ao baixar planilha de teste: HTTP ' + response.status);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        assert('Excel spreadsheet fetched via HTTP', arrayBuffer.byteLength > 10000, `Size: ${arrayBuffer.byteLength} bytes`);
+
+        // Test 4: Parse Excel Data
+        const parsed = await parseExcelData(arrayBuffer);
+        assert('parseExcelData parses all 832 contracts', parsed.length === 832, `Parsed: ${parsed.length}`);
+
+        // Test 5: Verify column mapping on first contract
+        const first = parsed[0];
+        assert('Contract #1 has valid codigo', first.codigo === 4643842);
+        assert('Contract #1 has valid aluno', first.aluno === 'Guilherme de Oliveira Santos');
+        assert('Contract #1 has status Ativo', first.status_contrato === 'Ativo');
+        assert('Contract #1 has forma_pagamento', first.forma_pagamento.includes('Boleto') && first.forma_pagamento.includes('Dinheiro'));
+        assert('Contract #1 has qtd_parcelas 42', first.qtd_parcelas === 42);
+        assert('Contract #1 has valor_parcela correctly mapped to Valor Parcela Líquido (7555.80)', Math.abs(first.valor_parcela - 7555.80) < 0.01, `Actual: ${first.valor_parcela}`);
+        assert('Contract #1 has valor_pago_total correctly mapped (6378.08)', Math.abs(first.valor_pago_total - 6378.08) < 0.01, `Actual: ${first.valor_pago_total}`);
+
+        // Test 6: Storage init and upsert
+        storage.clearLocalStorageOnly();
+        const initContratos = await storage.init();
+        assert('Storage init returns empty array after clear', initContratos.length === 0);
+
+        const upsertResult = await storage.upsertContratos(parsed);
+        assert('Upsert contracts adds 832 contracts', upsertResult.added === 832 && upsertResult.total === 832);
+        assert('Storage getAllContratos returns 832', storage.getAllContratos().length === 832);
+
+        // Test 7: Update due date
+        const updatedContrato = await storage.updateVencimento(4643842, 'Dia 10');
+        assert('updateVencimento sets Dia 10 on contract 4643842', updatedContrato.data_vencimento === 'Dia 10');
+        assert('storage.getContrato retrieves updated vencimento', storage.getContrato(4643842).data_vencimento === 'Dia 10');
+
+        // Test 8: Anti-overwrite guarantee on reimport
+        const reimportResult = await storage.upsertContratos(parsed);
+        assert('Reimport updates 832 contracts without adding new', reimportResult.updated === 832 && reimportResult.added === 0);
+        assert('Reimport preserves due dates count >= 1', reimportResult.preservedDueDates >= 1, `Preserved: ${reimportResult.preservedDueDates}`);
+        const checkGuilherme = storage.getContrato(4643842);
+        assert('Guilherme due date is STILL Dia 10 after reimport', checkGuilherme.data_vencimento === 'Dia 10', `Actual: ${checkGuilherme.data_vencimento}`);
+
+        // Test 9: Add manual student
+        const manual = await storage.addContratoManual({
+          codigo: 9999001,
+          aluno: 'Aluno Teste Automatizado',
+          status_contrato: 'Ativo',
+          data_vencimento: 'Dia 15',
+          forma_pagamento: 'PIX',
+          consultor: 'Consultor Teste',
+          qtd_parcelas: 12,
+          valor_parcela: 2400.00
+        });
+        assert('addContratoManual successfully registers new student', manual.codigo === 9999001);
+        assert('Total contracts is now 833', storage.getAllContratos().length === 833);
+
+        // Test 10: Delete contract
+        await storage.deleteContrato(9999001);
+        assert('deleteContrato removes student', storage.getContrato(9999001) === null);
+        assert('Total contracts back to 832', storage.getAllContratos().length === 832);
+
+        // Test 11: Export & Import JSON Backup
+        const backupJson = storage.exportBackupJSON();
+        assert('exportBackupJSON produces valid JSON string', typeof backupJson === 'string' && backupJson.length > 1000);
+        const parsedBackup = JSON.parse(backupJson);
+        assert('Backup JSON has unit Microlins Potirendaba', parsedBackup.unit === 'Microlins Potirendaba');
+        assert('Backup JSON has 832 records', parsedBackup.records.length === 832);
+
+        // Test 12: Verify number parser robustness
+        const testRowWithUsFormat = await parseExcelData(arrayBuffer);
+        const francisco = testRowWithUsFormat.find(c => c.codigo === 4643888);
+        assert('Francisco Barbosa has valor_parcela 7196', francisco && Math.abs(francisco.valor_parcela - 7196) < 0.01, `Actual: ${francisco?.valor_parcela}`);
+
+      } catch (err) {
+        assert('EXCEPTION IN TEST SUITE', false, err.message + '\n' + err.stack);
+      } finally {
+        const passedCount = results.filter(r => r.pass).length;
+        const failedCount = results.filter(r => !r.pass).length;
+        const total = results.length;
+
+        const summaryHtml = `
+          <div id="test-summary" data-total="${total}" data-passed="${passedCount}" data-failed="${failedCount}">
+            <h2>Resultados: ${passedCount}/${total} Testes Passaram (${failedCount} Falhas)</h2>
+            <ul>
+              ${results.map(r => `
+                <li style="color: ${r.pass ? 'green' : 'red'};">
+                  [${r.pass ? 'PASS' : 'FAIL'}] ${r.name} ${r.details ? `(${r.details})` : ''}
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+        `;
+        document.getElementById('test-results').innerHTML = summaryHtml;
+      }
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

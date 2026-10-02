@@ -200,7 +200,8 @@ function setupEventListeners() {
       if (success) {
         showToast('Conexão com Supabase restabelecida com sucesso!', 'success');
       } else {
-        showToast('Supabase inacessível no momento. Continuando em modo local.', 'warning');
+        const status = storage.getSyncStatus();
+        showToast(status.errorMessage || 'Supabase inacessível no momento. Continuando em modo local.', 'warning', 6000);
       }
       openSettingsModal();
       updateCloudStatusBadge();
@@ -217,7 +218,9 @@ function setupEventListeners() {
         openSettingsModal();
         updateCloudStatusBadge();
       } catch (err) {
-        showToast('Erro ao sincronizar com a nuvem: ' + err.message, 'error');
+        showToast('Erro ao sincronizar com a nuvem: ' + err.message, 'error', 7000);
+        openSettingsModal();
+        updateCloudStatusBadge();
       } finally {
         showLoading(false);
       }
@@ -299,6 +302,18 @@ function setupEventListeners() {
 }
 
 /**
+ * Utilitário de normalização de texto para busca insensível a acentos e maiúsculas
+ */
+function normalizeSearchText(str) {
+  if (!str) return '';
+  return String(str)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+/**
  * Reseta todos os filtros para os padrões
  */
 function resetFilters() {
@@ -329,20 +344,14 @@ function resetFilters() {
  */
 function applyFiltersAndRender() {
   const { search, status, paymentMethod, dueStatus } = state.filters;
-
-  const normalizedSearch = search
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+  const normalizedSearch = normalizeSearchText(search);
 
   state.filteredContracts = state.allContracts.filter(item => {
-    // 1. Busca por texto (Código, Aluno ou Consultor)
+    // 1. Busca por texto (Código, Aluno ou Consultor) com tolerância rigorosa a acentuação
     if (normalizedSearch) {
       const matchCodigo = String(item.codigo).includes(normalizedSearch);
-      const matchAluno = item.aluno_normalizado
-        ? item.aluno_normalizado.includes(normalizedSearch)
-        : item.aluno.toLowerCase().includes(normalizedSearch);
-      const matchConsultor = (item.consultor || '').toLowerCase().includes(normalizedSearch);
+      const matchAluno = normalizeSearchText(item.aluno_normalizado || item.aluno).includes(normalizedSearch);
+      const matchConsultor = normalizeSearchText(item.consultor).includes(normalizedSearch);
 
       if (!matchCodigo && !matchAluno && !matchConsultor) {
         return false;
@@ -381,7 +390,7 @@ function applyFiltersAndRender() {
 
     // 4. Filtro de Situação do Vencimento
     if (dueStatus !== 'Todos') {
-      const hasDue = Boolean(item.data_vencimento && item.data_vencimento.trim());
+      const hasDue = Boolean(item.data_vencimento && String(item.data_vencimento).trim());
       if (dueStatus === 'Com Vencimento' && !hasDue) return false;
       if (dueStatus === 'Pendente' && hasDue) return false;
     }
@@ -391,6 +400,12 @@ function applyFiltersAndRender() {
 
   // Ordenação dos resultados
   sortFilteredData();
+
+  // Garante que a página atual não ultrapasse o total de páginas existentes
+  const totalPages = Math.max(1, Math.ceil(state.filteredContracts.length / state.itemsPerPage));
+  if (state.currentPage > totalPages) {
+    state.currentPage = totalPages;
+  }
 
   // Renderiza Métricas, Tabela e Paginação
   renderMetrics();
@@ -421,9 +436,13 @@ function sortFilteredData() {
     }
 
     if (field === 'data_vencimento') {
-      // Ordena por dia numérico se possível (ex: "Dia 10" -> 10)
+      const hasA = Boolean(valA && String(valA).trim());
+      const hasB = Boolean(valB && String(valB).trim());
+      if (!hasA && !hasB) return 0;
+      if (!hasA) return 1; // Registros sem vencimento ficam sempre ao final
+      if (!hasB) return -1;
+
       const extractDay = (val) => {
-        if (!val) return 999;
         const m = String(val).match(/\d+/);
         return m ? parseInt(m[0], 10) : 998;
       };
@@ -637,18 +656,45 @@ function getInitials(name) {
 }
 
 /**
- * Formata o resumo das parcelas (ex: "42x R$ 180,00" ou "R$ 7.555,80")
+ * Formata o resumo das parcelas com cálculo correto da mensalidade (ex: "42x de R$ 179,90" e "Total: R$ 7.555,80")
  */
 function formatParcelasInfo(qtd, valor) {
   if (!qtd && !valor) return '-';
-  if (qtd && valor) {
-    const valorFmt = Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    return `${qtd}x de ${valorFmt}`;
+
+  const qtdNum = Number(qtd) || 0;
+  const valNum = Number(valor) || 0;
+
+  if (qtdNum > 1 && valNum > 0) {
+    // Na base de dados escolar, valor_parcela é o valor total líquido das parcelas quando >= 500,
+    // e o valor unitário da mensalidade quando < 500. Tratamos ambos com precisão.
+    let valorParcelaUnit;
+    let valorTotal;
+
+    if (valNum >= 500) {
+      valorTotal = valNum;
+      valorParcelaUnit = valNum / qtdNum;
+    } else {
+      valorParcelaUnit = valNum;
+      valorTotal = valNum * qtdNum;
+    }
+
+    const unitFmt = valorParcelaUnit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const totalFmt = valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    return `
+      <div class="parcelas-detail">
+        <span class="parcelas-main">${qtdNum}x de ${unitFmt}</span>
+        <span class="parcelas-total">Total: ${totalFmt}</span>
+      </div>
+    `;
   }
-  if (valor) {
-    return Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  if (valNum > 0) {
+    const totalFmt = valNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    return `<span class="parcelas-main">${totalFmt}</span>`;
   }
-  return `${qtd} parcelas`;
+
+  return `<span class="parcelas-main">${qtdNum} parcelas</span>`;
 }
 
 /**
@@ -836,29 +882,44 @@ function closeDueDatePopover() {
 }
 
 /**
- * Salva a alteração de vencimento selecionada
+ * Salva a alteração de vencimento selecionada mantendo sincronizado o estado da memória
  */
 async function saveDueDate(newVal) {
   const codigo = state.activePopover.codigo;
   if (!codigo) return;
 
+  const valorFormatado = newVal ? String(newVal).trim() : null;
+
   try {
-    const updated = await storage.updateVencimento(codigo, newVal);
+    await storage.updateVencimento(codigo, valorFormatado);
+
+    // Sincroniza imediatamente o estado em memória para manter consistência em buscas, filtros e exportações
+    const strCod = String(codigo);
+    const itemInAll = state.allContracts.find(c => String(c.codigo) === strCod);
+    if (itemInAll) {
+      itemInAll.data_vencimento = valorFormatado;
+      itemInAll.updated_at = new Date().toISOString();
+    }
+    const itemInFiltered = state.filteredContracts.find(c => String(c.codigo) === strCod);
+    if (itemInFiltered) {
+      itemInFiltered.data_vencimento = valorFormatado;
+      itemInFiltered.updated_at = new Date().toISOString();
+    }
 
     // Efeito visual no botão de gatilho
     if (state.activePopover.targetElement) {
       const btn = state.activePopover.targetElement;
       const textSpan = btn.querySelector('.due-text');
       if (textSpan) {
-        textSpan.textContent = newVal ? formatDueBadgeText(newVal) : '+ Definir Dia';
+        textSpan.textContent = valorFormatado ? formatDueBadgeText(valorFormatado) : '+ Definir Dia';
       }
-      btn.className = `due-date-trigger ${newVal ? 'due-badge-defined' : 'due-badge-empty'} due-pulse-success`;
+      btn.className = `due-date-trigger ${valorFormatado ? 'due-badge-defined' : 'due-badge-empty'} due-pulse-success`;
       setTimeout(() => btn.classList.remove('due-pulse-success'), 800);
     }
 
     closeDueDatePopover();
     renderMetrics();
-    showToast(`Vencimento do contrato #${codigo} atualizado: ${newVal ? formatDueBadgeText(newVal) : 'removido'}`, 'success', 2500);
+    showToast(`Vencimento do contrato #${codigo} atualizado: ${valorFormatado ? formatDueBadgeText(valorFormatado) : 'removido'}`, 'success', 2500);
   } catch (err) {
     showToast('Erro ao atualizar vencimento: ' + err.message, 'error');
   }
@@ -992,10 +1053,11 @@ function exportToExcel() {
     return;
   }
 
-  const dataToExport = state.filteredContracts.length > 0 ? state.filteredContracts : state.allContracts;
+  const isFiltered = Boolean(state.filters.search || state.filters.status !== 'Todos' || state.filters.paymentMethod !== 'Todas' || state.filters.dueStatus !== 'Todos');
+  const dataToExport = isFiltered ? state.filteredContracts : state.allContracts;
 
   if (dataToExport.length === 0) {
-    showToast('Nenhum contrato para exportar.', 'warning');
+    showToast('Nenhum contrato encontrado para os filtros atuais.', 'warning');
     return;
   }
 
@@ -1004,7 +1066,7 @@ function exportToExcel() {
     'Código': item.codigo,
     'Aluno': item.aluno,
     'Status Contrato': item.status_contrato,
-    'Data de Vencimento': item.data_vencimento || 'Não definido',
+    'Data de Vencimento': item.data_vencimento || '',
     'Forma Pagamento Parcela': item.forma_pagamento,
     'Colaborador Consultor': item.consultor || '',
     'Quantidade Parcelas': item.qtd_parcelas || '',

@@ -23,16 +23,33 @@ function normalizeHeader(key) {
 
 /**
  * Converte valor numérico em float seguro, tratando formatação brasileira (R$, vírgulas)
+ * e formato padrão com ponto decimal, sem multiplicar por 100 indevidamente.
  */
 function parseSafeNumber(val) {
   if (val === undefined || val === null || val === '') return null;
   if (typeof val === 'number') return isNaN(val) ? null : val;
 
-  const str = String(val)
+  let str = String(val)
     .replace(/R\$/gi, '')
     .replace(/\s+/g, '')
-    .replace(/\./g, '') // remove separador de milhar
-    .replace(',', '.'); // substitui vírgula decimal
+    .trim();
+
+  if (!str) return null;
+
+  // Se tiver ponto e vírgula (ex: "7.555,80" ou "7,555.80")
+  if (str.includes('.') && str.includes(',')) {
+    if (str.lastIndexOf(',') > str.lastIndexOf('.')) {
+      // Formato brasileiro: 7.555,80 -> remove ponto, substitui vírgula
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Formato americano: 7,555.80 -> remove vírgula
+      str = str.replace(/,/g, '');
+    }
+  } else if (str.includes(',')) {
+    // Apenas vírgula: formato decimal brasileiro (ex: "7555,80" -> "7555.80")
+    str = str.replace(',', '.');
+  }
+  // Se contiver apenas ponto, já é o formato decimal numérico padrão (ex: "7555.80")
 
   const parsed = parseFloat(str);
   return isNaN(parsed) ? null : parsed;
@@ -80,7 +97,7 @@ export async function parseExcelData(fileOrBuffer) {
     throw new Error('Nenhuma linha de dados encontrada na primeira aba da planilha.');
   }
 
-  // Identifica as colunas através dos cabeçalhos da primeira linha
+  // Identifica as colunas através dos cabeçalhos da primeira linha com prioridade precisa
   const firstRow = rawRows[0];
   const headerMap = {};
 
@@ -91,7 +108,7 @@ export async function parseExcelData(fileOrBuffer) {
       headerMap.codigo = rawCol;
     } else if (norm === 'aluno' || norm === 'nome' || norm === 'nomedoaluno') {
       headerMap.aluno = rawCol;
-    } else if (norm === 'statuscontrato' || norm === 'status') {
+    } else if (norm === 'statuscontrato' || norm === 'status' || norm.startsWith('statuscontrato')) {
       headerMap.status_contrato = rawCol;
     } else if (norm.includes('formapagamentoparcela') || norm.includes('formapagamento') || norm.includes('modalidade')) {
       headerMap.forma_pagamento = rawCol;
@@ -99,9 +116,9 @@ export async function parseExcelData(fileOrBuffer) {
       headerMap.consultor = rawCol;
     } else if (norm.includes('quantidadeparcelas') || norm === 'parcelas' || norm === 'qtdparcelas') {
       headerMap.qtd_parcelas = rawCol;
-    } else if (norm.includes('valorparcelaliquido') || norm.includes('valorparcela')) {
+    } else if (norm === 'valorparcelaliquido' || norm === 'valorparcela' || (norm.includes('valorparcela') && !norm.includes('desconto') && !norm.includes('pago') && !norm.includes('bruto'))) {
       headerMap.valor_parcela = rawCol;
-    } else if (norm.includes('valorpagototal') || norm.includes('valorpago')) {
+    } else if (norm === 'valorpagototal' || norm === 'valorpago' || (norm.includes('valorpago') && !norm.includes('material') && !norm.includes('parcela') && !norm.includes('matricula') && !norm.includes('outros'))) {
       headerMap.valor_pago_total = rawCol;
     } else if (norm.includes('datavencimento') || norm.includes('vencimento') || norm.includes('diavencimento')) {
       headerMap.data_vencimento = rawCol;

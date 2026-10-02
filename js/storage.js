@@ -94,14 +94,30 @@ class DataStorage {
     }
 
     try {
-      // Busca em blocos de até 5000 registros para garantir cobertura total
-      const { data, error } = await this.supabase
-        .from(CONFIG.TABLE_NAME)
-        .select('*')
-        .range(0, 4999);
+      // Busca em páginas de 1000 registros para garantir cobertura completa mesmo com grandes volumes
+      let allData = [];
+      let from = 0;
+      const step = 1000;
 
-      if (error) {
-        throw error;
+      while (true) {
+        const { data, error } = await this.supabase
+          .from(CONFIG.TABLE_NAME)
+          .select('*')
+          .range(from, from + step - 1);
+
+        if (error) {
+          throw error;
+        }
+
+        if (!data || data.length === 0) {
+          break;
+        }
+
+        allData.push(...data);
+        if (data.length < step) {
+          break; // Última página
+        }
+        from += step;
       }
 
       this.syncStatus.isConnected = true;
@@ -110,9 +126,9 @@ class DataStorage {
       this.syncStatus.lastSync = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       localStorage.setItem(CONFIG.LAST_SYNC_KEY, this.syncStatus.lastSync);
 
-      if (data && data.length > 0) {
+      if (allData.length > 0) {
         // Se a nuvem tem registros, mesclamos com o local preservando vencimentos locais mais recentes
-        for (const remote of data) {
+        for (const remote of allData) {
           const key = String(remote.codigo);
           const local = this.memoryData.get(key);
 
@@ -132,10 +148,14 @@ class DataStorage {
 
       return true;
     } catch (err) {
-      console.warn('[Storage] Supabase indisponível, usando modo offline:', err.message || err);
+      let friendlyMsg = err.message || 'Falha de comunicação com o Supabase';
+      if (err.code === 'PGRST205' || friendlyMsg.includes('not find the table') || friendlyMsg.includes('does not exist')) {
+        friendlyMsg = 'Tabela contratos_financeiro não encontrada no Supabase. Execute o script supabase_schema.sql no SQL Editor.';
+      }
+      console.warn('[Storage] Supabase indisponível, usando modo offline:', friendlyMsg);
       this.syncStatus.isConnected = false;
       this.syncStatus.provider = 'local';
-      this.syncStatus.errorMessage = err.message || 'Falha de comunicação com o Supabase';
+      this.syncStatus.errorMessage = friendlyMsg;
       return false;
     }
   }
@@ -186,6 +206,7 @@ class DataStorage {
           ...novo,
           data_vencimento: dataVencimento || null,
           unit_id: CONFIG.UNIT_ID,
+          created_at: existing.created_at || new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
       } else {
@@ -209,7 +230,7 @@ class DataStorage {
     // Se o Supabase estiver disponível, envia em lotes de 100 para evitar payload excessivo
     if (this.supabase && this.syncStatus.isConnected && listToPersist.length > 0) {
       this._batchUpsertSupabase(listToPersist).catch(err => {
-        console.warn('[Storage] Erro no sync em lote com Supabase:', err);
+        console.warn('[Storage] Erro no sync em lote com Supabase:', err.message || err);
       });
     }
 
@@ -222,23 +243,23 @@ class DataStorage {
   }
 
   /**
-   * Envia lotes de contratos para o Supabase
+   * Envia lotes de contratos para o Supabase com tratamento rigoroso de erros
    */
   async _batchUpsertSupabase(records) {
     if (!this.supabase) return;
     const batchSize = 100;
     for (let i = 0; i < records.length; i += batchSize) {
       const chunk = records.slice(i, i + batchSize);
-      try {
-        const { error } = await this.supabase
-          .from(CONFIG.TABLE_NAME)
-          .upsert(chunk, { onConflict: 'codigo' });
+      const { error } = await this.supabase
+        .from(CONFIG.TABLE_NAME)
+        .upsert(chunk, { onConflict: 'codigo' });
 
-        if (error) {
-          console.warn(`[Storage] Erro ao enviar lote ${i} ao Supabase:`, error);
+      if (error) {
+        let msg = error.message || `Falha ao sincronizar lote de contratos`;
+        if (error.code === 'PGRST205' || msg.includes('not find the table') || msg.includes('does not exist')) {
+          msg = 'Tabela contratos_financeiro não encontrada no Supabase. Execute o script supabase_schema.sql no SQL Editor.';
         }
-      } catch (e) {
-        console.warn(`[Storage] Exceção no lote ${i}:`, e);
+        throw new Error(msg);
       }
     }
   }

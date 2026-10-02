@@ -19,21 +19,23 @@ Este sistema resolve a limitação dos relatórios padrão da instituição de e
 
 ## 🚀 2. Como Rodar Localmente
 
-Por ser uma aplicação 100% estática baseada em módulos ES6 nativos, ela pode ser executada por qualquer servidor HTTP estático local:
+Por ser uma aplicação baseada em módulos ES6 nativos, ela deve ser executada através de um servidor HTTP local:
 
-### Opção 1: Via Python
+### Opção 1: 1-Clique Direto no Windows (Recomendado - Zero Instalações)
+Dê um duplo clique no arquivo **`iniciar_servidor.bat`** (ou execute no terminal `.\iniciar_servidor.ps1`).  
+Ele inicia automaticamente um servidor local nativo rápido e abre o sistema no seu navegador padrão, sem precisar instalar Python nem Node.js!
+
+### Opção 2: Extensão "Live Server" (VS Code)
+Abra a pasta no VS Code, clique com o botão direito em `index.html` e selecione **Open with Live Server**.
+
+### Opção 3: Via Python ou Node.js
 ```bash
+# Se tiver Python instalado:
 python -m http.server 8080
-```
-Acesse no navegador: `http://localhost:8080`
 
-### Opção 2: Via Node.js (npx serve)
-```bash
+# Ou se tiver Node.js instalado:
 npx serve .
 ```
-
-### Opção 3: Extensão "Live Server" (VS Code)
-Basta clicar com o botão direito no arquivo `index.html` e selecionar **Open with Live Server**.
 
 ---
 
