@@ -1,139 +1,88 @@
-# 🎓 Sistema de Gestão Financeira de Contratos e Modalidades
+# Sistema de Gestão Financeira de Contratos e Modalidades
 ### Microlins Potirendaba
 
-> **Ambiente de Produção:** GitHub Pages (Web 100% Estático / Client-Side)  
+> **Ambiente Web:** [https://microlinsmalone-dev.github.io/gestao-financeira-contratos/](https://microlinsmalone-dev.github.io/gestao-financeira-contratos/)  
+> **Repositório GitHub:** [https://github.com/microlinsmalone-dev/gestao-financeira-contratos](https://github.com/microlinsmalone-dev/gestao-financeira-contratos)  
 > **Banco de Dados & Nuvem:** Supabase (PostgreSQL + RLS)  
-> **Persistência Híbrida:** Supabase Cloud + LocalStorage / IndexedDB Offline  
+> **Persistência Híbrida:** Supabase Cloud + LocalStorage Offline  
 
 ---
 
-## 📌 1. Visão Geral
+## 1. Visão Geral
 
-Este sistema resolve a limitação dos relatórios padrão da instituição de ensino, unificando em uma única tela interativa:
-1. **Identificação Visual Instantânea das Modalidades de Pagamento:** Converte registros acumulados (ex: `Boleto, Cartão de Crédito, PIX`) em badges visuais coloridos com ícones vetoriais SVG padronizados.
-2. **Definição Rápida da Data de Vencimento:** Popover inteligente com botões rápidos (**05**, **10**, **15**, **20**, **25**, **30**) e entrada personalizada com salvamento instantâneo (*auto-save*).
-3. **Reimportação Inteligente (Upsert Anti-Sobrescrita):** Sempre que uma nova planilha `Relatório Controle Financeiro.xlsx` for importada, novos alunos e formas de pagamento são atualizados, mas **todas as datas de vencimento cadastradas previamente são rigorosamente preservadas**.
-4. **Exportação com Vencimento Incluso:** Gera uma nova planilha Excel contendo a coluna `Data de Vencimento` preenchida para uso nas cobranças e conciliações bancárias.
+Este sistema unifica o controle de recebimentos e contratos da instituição de ensino, integrando:
+1. **Identificação Visual das Modalidades:** Converte os lançamentos brutos (Boleto, Cartão de Crédito, PIX, Dinheiro) em identificadores visuais vetorizados.
+2. **Definição de Vencimento:** Popover com dias pré-definidos (05, 10, 15, 20, 25, 30) ou dia customizado, com auto-save imediato.
+3. **Reimportação Inteligente:** Preserva integralmente as datas de vencimento cadastradas quando novas planilhas são importadas.
+4. **Cruzamento de Três Relatórios:**
+   - **Relatório de Contrato Financeiro (.xlsx):** Dados cadastrais, modalidades e valores base.
+   - **Recebimentos de Contratos (.xlsx):** Parcelas restantes reais, parcelas em atraso e datas.
+   - **Baixa de Recebimentos (.xlsx):** Extrato transacional do caixa, detecção de pagamento em lote no cartão (6x+) e cálculo do próximo vencimento real.
+5. **Filtro Automático para Emissão de Boletos:** Exclui automaticamente contratos quitados, inadimplentes e alunos já cobertos por pagamentos em lote de cartão.
 
 ---
 
-## 🚀 2. Como Rodar Localmente
+## 2. Acesso Direto na Web (GitHub Pages)
 
-Por ser uma aplicação baseada em módulos ES6 nativos, ela deve ser executada através de um servidor HTTP local:
+Para utilizar o sistema diretamente pelo navegador em qualquer dispositivo sem necessidade de abrir o terminal:
 
-### Opção 1: 1-Clique Direto no Windows (Recomendado - Zero Instalações)
-Dê um duplo clique no arquivo **`iniciar_servidor.bat`** (ou execute no terminal `.\iniciar_servidor.ps1`).  
-Ele inicia automaticamente um servidor local nativo rápido e abre o sistema no seu navegador padrão, sem precisar instalar Python nem Node.js!
+### Endereço de Acesso
+```
+https://microlinsmalone-dev.github.io/gestao-financeira-contratos/
+```
 
-### Opção 2: Extensão "Live Server" (VS Code)
-Abra a pasta no VS Code, clique com o botão direito em `index.html` e selecione **Open with Live Server**.
+### Como Ativar o GitHub Pages no Repositório
+1. Acesse o painel de configurações do repositório:  
+   `https://github.com/microlinsmalone-dev/gestao-financeira-contratos/settings/pages`
+2. Na seção **Build and deployment > Source**, selecione a opção **Deploy from a branch**.
+3. No campo **Branch**, selecione `main` e a pasta `/ (root)`.
+4. Clique em **Save**.
+5. Em instantes o sistema estará operacional no link da web acima.
 
-### Opção 3: Via Python ou Node.js
+---
+
+## 3. Como Rodar Localmente (Opcional)
+
+Se desejar rodar em ambiente offline local:
+
+### Opção 1: Iniciar Servidor Rápido
+Duplo clique no arquivo `iniciar_servidor.bat` (ou execute `.\iniciar_servidor.ps1` no PowerShell).
+
+### Opção 2: Servidor Python
 ```bash
-# Se tiver Python instalado:
 python -m http.server 8080
-
-# Ou se tiver Node.js instalado:
-npx serve .
 ```
+Abra `http://localhost:8080` no navegador.
 
 ---
 
-## 🌐 3. Publicação no GitHub Pages
-
-Para publicar o sistema e torná-lo acessível para toda a equipe da escola sem qualquer custo de servidor:
-
-1. **Inicialize o repositório local:**
-   ```bash
-   git init
-   git add .
-   git commit -m "feat: Sistema de Gestão Financeira Microlins Potirendaba"
-   ```
-
-2. **Crie um repositório no seu GitHub** (ex: `sistema-financeiro-microlins`).
-
-3. **Vincule o repositório remoto e envie o código:**
-   ```bash
-   git remote add origin https://github.com/SEU_USUARIO/sistema-financeiro-microlins.git
-   git branch -M main
-   git push -u origin main
-   ```
-
-4. **Ative o GitHub Pages:**
-   - No GitHub, acesse a aba **Settings** do repositório.
-   - No menu lateral esquerdo, clique em **Pages**.
-   - Em **Build and deployment > Source**, selecione **Deploy from a branch**.
-   - Em **Branch**, selecione `main` e a pasta `/ (root)`.
-   - Clique em **Save**.
-   - Em menos de 2 minutos, o sistema estará online no endereço:  
-     `https://SEU_USUARIO.github.io/sistema-financeiro-microlins/`
-
----
-
-## 🗄️ 4. Configuração do Banco de Dados no Supabase
-
-O sistema conecta-se ao Supabase da unidade para salvar os dados na nuvem:
-
-1. Acesse o painel do Supabase do projeto: `https://supabase.com/dashboard/project/apfcbkucxjcleqxarlmv`
-2. No menu lateral, clique em **SQL Editor** -> **New Query**.
-3. Abra o arquivo `supabase_schema.sql` deste projeto, copie todo o seu conteúdo, cole no editor e clique em **Run**.
-4. O script cria:
-   - A tabela `contratos_financeiro` com chave primária em `codigo`.
-   - Índices de performance para busca em alta velocidade (`aluno`, `data_vencimento`, `status_contrato`).
-   - Gatilho automático para `updated_at`.
-   - Políticas de segurança de nível de linha (RLS) para leitura e escrita pela chave anônima pública.
-
----
-
-## 📁 5. Estrutura de Arquivos
+## 4. Estrutura do Projeto
 
 ```
-Sistema Data Financeiro e Modalidade/
-├── index.html                   # Estrutura semântica, cards de métricas, dropzone e modais
+gestao-financeira-contratos/
+├── index.html                   # Estrutura principal da aplicação
 ├── css/
-│   ├── main.css                 # Reset, tipografia, variáveis de cores Microlins e header
-│   ├── components.css           # Badges de pagamento, popovers de vencimento e modais
-│   └── table.css                # Tabela estilizada, barra de filtros, busca e paginação
+│   ├── main.css                 # Tipografia, variáveis de cores e layout geral
+│   ├── components.css           # Badges, popovers e modais
+│   └── table.css                # Tabela estilizada, barra de filtros e ações
 ├── js/
-│   ├── config.js                # Chaves Supabase, Unit ID, dias pré-definidos e constantes
-│   ├── storage.js               # Persistência híbrida (Supabase + LocalStorage) e Upsert inteligente
-│   ├── excel-importer.js        # Leitura da planilha com SheetJS e normalização de colunas
-│   ├── payment-badges.js        # Ícones vetoriais SVG e gerador de badges por modalidade
-│   ├── modals.js                # Modais: Novo Aluno, Exclusão Segura e Configurações/Backup
-│   └── app.js                   # Orquestrador da aplicação, busca, ordenação, auto-save e exportação
-├── supabase_schema.sql          # Script SQL para criação de tabelas e políticas RLS
-├── Relatório Controle Financeiro.xlsx # Arquivo de dados original da escola para teste
-└── README.md                    # Documentação técnica e guia operacional
+│   ├── config.js                # Chaves Supabase, Unit ID e constantes
+│   ├── storage.js               # Persistência híbrida (Supabase + LocalStorage)
+│   ├── excel-importer.js        # Motor de importação e detecção de planilhas
+│   ├── payment-badges.js        # Gerador de badges SVG por modalidade
+│   ├── modals.js                # Modais auxiliares
+│   └── app.js                   # Orquestrador da aplicação e regras de negócio
+├── test_suite.html              # Bateria de testes automatizados de ponta a ponta
+├── Relatório Contrato Financeiro.xlsx
+├── Recebimentos de Contratos.xlsx
+├── Baixa de Recebimentos.xlsx
+└── README.md
 ```
 
 ---
 
-## 🎨 6. Design System & Identidade Visual
+## 5. Suíte de Testes Automatizados
 
-O sistema utiliza a identidade oficial da **Microlins Potirendaba**:
-- **Azul Primário Microlins:** `#0f3b7d`
-- **Azul Secundário:** `#1e54a4`
-- **Vermelho Destaque:** `#d91a2a`
-- **Background Principal:** `#f8fafd`
-- **Card Background:** `#ffffff` com sombras suaves
-
-### Badges de Modalidades Suportadas
-| Modalidade | Fundo | Borda | Texto/Ícone |
-| :--- | :--- | :--- | :--- |
-| **PIX / QR Code** | `#ecfdf5` | `#a7f3d0` | `#047857` (Esmeralda) |
-| **Boleto** | `#fffbeb` | `#fde68a` | `#b45309` (Âmbar) |
-| **Cartão de Crédito** | `#eef2ff` | `#c7d2fe` | `#4338ca` (Índigo) |
-| **Cartão de Débito** | `#f0f9ff` | `#bae6fd` | `#0369a1` (Azul Céu) |
-| **Dinheiro** | `#f0fdf4` | `#bbf7d0` | `#15803d` (Verde) |
-| **Carnê** | `#fff1f2` | `#fecdd3` | `#be123c` (Rosé) |
-| **Depósito Bancário** | `#eff6ff` | `#bfdbfe` | `#1d4ed8` (Azul Real) |
-| **Cheque** | `#f8fafc` | `#cbd5e1` | `#475569` (Ardósia) |
-| **Sem registro** | `#f1f5f9` | `#e2e8f0` | `#94a3b8` (Neutro) |
-
----
-
-## 🔒 7. Segurança e Proteção dos Dados
-
-- **Persistência Híbrida Inteligente:** Todas as alterações feitas na tela são gravadas imediatamente tanto no navegador (`localStorage`) quanto na nuvem Supabase. Se a conexão cair, o sistema continua funcionando normalmente e sincroniza quando a rede voltar.
-- **Backups JSON e Excel:** Na tela de configurações, o usuário pode fazer download a qualquer momento de um backup completo em formato `.json` ou exportar a planilha `.xlsx` com todas as colunas e vencimentos.
-- **Exclusão Segura:** Nenhuma exclusão acontece por clique acidental; um modal de confirmação exibe o nome e o código do contrato antes de qualquer remoção definitiva.
+A aplicação dispõe de uma suíte de testes integrada acessível diretamente no navegador:
+- Arquivo: `test_suite.html`
+- Cobre 47 verificações automatizadas de integridade, cálculo de parcelas, regras de emissão de boleto e importação de planilhas.
