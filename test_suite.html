@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <title>Automated Test Suite - Microlins Potirendaba</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="js/exceljs.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px; background: #f8fafc; }
@@ -190,6 +191,52 @@
         const geovaneBadges = renderPaymentBadges(geovaneStorage);
         assert('Geovane Rafael (matrícula no cartão) NÃO exibe badge-cartao-mensal e mantém Boleto/PIX',
           !geovaneBadges.includes('badge-cartao-mensal') && geovaneBadges.includes('badge-pix'));
+
+        // ==============================================================================
+        // TESTES DE REMOÇÃO DE ANEXO (BOTÃO 'X' NAS PLANILHAS)
+        // ==============================================================================
+
+        // Test 19: Remoção da planilha Baixa de Recebimentos
+        storage.removeBaixaData();
+        const danielAfterRemoveBaixa = storage.getContrato(5128149);
+        assert('removeBaixaData limpa perfil_pagamento', !danielAfterRemoveBaixa.perfil_pagamento);
+        assert('removeBaixaData limpa pagamento_lote_cartao / lapada_cartao', !danielAfterRemoveBaixa.pagamento_lote_cartao && !danielAfterRemoveBaixa.lapada_cartao);
+        assert('removeBaixaData limpa histórico de baixas', !danielAfterRemoveBaixa.historico_baixas);
+
+        // Test 20: Re-merge da Baixa restaura dados
+        await storage.mergeBaixaRecebimentos(parsedBaixa.data);
+        const danielRestored = storage.getContrato(5128149);
+        assert('Re-merge da Baixa restaura CARTAO_LOTE para Daniel Fernandes', danielRestored.perfil_pagamento === 'CARTAO_LOTE');
+
+        // Test 21: Remoção da planilha Recebimentos de Contratos
+        storage.removeRecebimentosData();
+        const sampleAfterRemoveReceb = storage.getContrato(4930272);
+        assert('removeRecebimentosData redefine parcelas_restantes para null', sampleAfterRemoveReceb.parcelas_restantes === null);
+        assert('removeRecebimentosData redefine parcelas_atrasadas para 0', sampleAfterRemoveReceb.parcelas_atrasadas === 0);
+
+        // Test 22: Re-merge de Recebimentos restaura dados
+        await storage.mergeRecebimentos(parsedReceb.data);
+        const sampleRestored = storage.getContrato(4930272);
+        assert('Re-merge de Recebimentos restaura parcelas_restantes = 28', sampleRestored.parcelas_restantes === 28);
+
+        // ==============================================================================
+        // TESTES DE EXPORTAÇÃO EXCEL PROFISSIONAL FORMATADA
+        // ==============================================================================
+
+        // Test 23: ExcelJS carregado e capacidade de estilização
+        assert('window.ExcelJS está disponível globalmente', typeof window.ExcelJS !== 'undefined' && typeof window.ExcelJS.Workbook === 'function');
+        const testWb = new window.ExcelJS.Workbook();
+        const testWs = testWb.addWorksheet('Teste_Formatacao');
+        testWs.columns = [
+          { header: 'Nº CONTRATO', key: 'codigo', width: 16 },
+          { header: 'ALUNO', key: 'aluno', width: 35 },
+          { header: 'VENCIMENTO', key: 'vencimento', width: 18 },
+          { header: 'MODALIDADES DE PAGAMENTO', key: 'modalidade', width: 30 },
+          { header: 'PARCELAS RESTANTES', key: 'restantes', width: 22 }
+        ];
+        testWs.addRow({ codigo: 4643842, aluno: 'Guilherme', vencimento: 'Dia 10', modalidade: 'Boleto', restantes: 12 });
+        const testBuf = await testWb.xlsx.writeBuffer();
+        assert('ExcelJS gera buffer binário formatado válido (> 4KB)', testBuf && testBuf.byteLength > 4000, `Bytes: ${testBuf?.byteLength}`);
 
       } catch (err) {
         assert('EXCEPTION IN TEST SUITE', false, err.message + '\n' + err.stack);

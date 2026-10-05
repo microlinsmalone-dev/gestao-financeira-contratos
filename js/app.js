@@ -124,22 +124,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
-    // Se já tinha contratos mas queremos atualizar os badges visuais dos cards
-    if (state.allContracts.length > 0) {
-      const b1 = document.getElementById('badgeStatusContrato');
-      if (b1) { b1.textContent = 'Carregada'; b1.className = 'badge-upload-status badge-upload-loaded'; }
-      const hasReceb = state.allContracts.some(c => c.parcelas_restantes !== undefined && c.parcelas_restantes !== null);
-      if (hasReceb) {
-        const b2 = document.getElementById('badgeStatusRecebimentos');
-        if (b2) { b2.textContent = 'Atualizado'; b2.className = 'badge-upload-status badge-upload-loaded'; }
-      }
-      const hasBaixa = state.allContracts.some(c => c.perfil_pagamento);
-      if (hasBaixa) {
-        const b3 = document.getElementById('badgeStatusBaixa');
-        if (b3) { b3.textContent = 'Processada'; b3.className = 'badge-upload-status badge-upload-loaded'; }
-      }
-    }
-
+    // Atualiza os badges visuais dos cards e classe de anexo
+    updateImportCardsStatus();
     updateCloudStatusBadge();
     applyFiltersAndRender();
 
@@ -154,6 +140,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('[App] Erro na inicialização:', err);
     showToast('Iniciado em modo local. ' + (err.message || ''), 'warning');
     updateCloudStatusBadge();
+    updateImportCardsStatus();
     applyFiltersAndRender();
   } finally {
     showLoading(false);
@@ -166,6 +153,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 function handleDataReload() {
   state.allContracts = storage.getAllContratos();
   updateCloudStatusBadge();
+  updateImportCardsStatus();
   applyFiltersAndRender();
 }
 
@@ -414,7 +402,114 @@ function setupSettingsModalActions() {
 }
 
 /**
- * Configuração dos dois inputs e zonas de upload separados
+ * Atualiza o status visual dos cards de importação (badges e botão de remover anexo)
+ */
+export function updateImportCardsStatus() {
+  const all = state.allContracts || [];
+
+  // Card 1: Relatório de Contrato Financeiro
+  const dzContrato = document.getElementById('dropzoneContrato');
+  const bContrato = document.getElementById('badgeStatusContrato');
+  const isContratoLoaded = all.length > 0;
+  if (dzContrato) {
+    if (isContratoLoaded) dzContrato.classList.add('is-attached');
+    else dzContrato.classList.remove('is-attached');
+  }
+  if (bContrato) {
+    bContrato.textContent = isContratoLoaded ? 'Carregada' : 'Disponível';
+    bContrato.className = isContratoLoaded 
+      ? 'badge-upload-status badge-upload-loaded' 
+      : 'badge-upload-status badge-upload-ready';
+  }
+
+  // Card 2: Recebimentos de Contratos
+  const dzReceb = document.getElementById('dropzoneRecebimentos');
+  const bReceb = document.getElementById('badgeStatusRecebimentos');
+  const isRecebLoaded = all.some(c => c.parcelas_restantes !== undefined && c.parcelas_restantes !== null);
+  if (dzReceb) {
+    if (isRecebLoaded) dzReceb.classList.add('is-attached');
+    else dzReceb.classList.remove('is-attached');
+  }
+  if (bReceb) {
+    bReceb.textContent = isRecebLoaded ? 'Atualizado' : 'Analítico';
+    bReceb.className = isRecebLoaded 
+      ? 'badge-upload-status badge-upload-loaded' 
+      : 'badge-upload-status badge-upload-ready';
+  }
+
+  // Card 3: Baixa de Recebimentos
+  const dzBaixa = document.getElementById('dropzoneBaixa');
+  const bBaixa = document.getElementById('badgeStatusBaixa');
+  const isBaixaLoaded = all.some(c => c.perfil_pagamento);
+  if (dzBaixa) {
+    if (isBaixaLoaded) dzBaixa.classList.add('is-attached');
+    else dzBaixa.classList.remove('is-attached');
+  }
+  if (bBaixa) {
+    bBaixa.textContent = isBaixaLoaded ? 'Processada' : 'Transacional';
+    bBaixa.className = isBaixaLoaded 
+      ? 'badge-upload-status badge-upload-loaded' 
+      : 'badge-upload-status badge-upload-ready';
+  }
+}
+
+/**
+ * Remove anexo do Relatório de Contrato Financeiro
+ */
+export async function removerAnexoContrato() {
+  const inputContrato = document.getElementById('excelFileInputContrato');
+  if (inputContrato) inputContrato.value = '';
+
+  storage.clearLocalStorageOnly();
+  state.allContracts = [];
+  state.filteredContracts = [];
+  state.currentPage = 1;
+
+  updateImportCardsStatus();
+  applyFiltersAndRender();
+  showToast('Relatório de Contrato Financeiro removido com sucesso.', 'info');
+}
+
+/**
+ * Remove anexo de Recebimentos de Contratos
+ */
+export async function removerAnexoRecebimentos() {
+  const inputReceb = document.getElementById('excelFileInputRecebimentos');
+  if (inputReceb) inputReceb.value = '';
+
+  storage.removeRecebimentosData();
+  state.allContracts = storage.getAllContratos();
+  state.currentPage = 1;
+
+  updateImportCardsStatus();
+  applyFiltersAndRender();
+  showToast('Relatório de Recebimentos de Contratos removido.', 'info');
+}
+
+/**
+ * Remove anexo da Baixa de Recebimentos
+ */
+export async function removerAnexoBaixa() {
+  const inputBaixa = document.getElementById('excelFileInputBaixa');
+  if (inputBaixa) inputBaixa.value = '';
+
+  storage.removeBaixaData();
+  state.allContracts = storage.getAllContratos();
+
+  if (state.filters.filtroCartaoLote) {
+    state.filters.filtroCartaoLote = false;
+    const btn = document.getElementById('btnFiltroCartaoLote');
+    if (btn) btn.classList.remove('is-active');
+  }
+  state.currentPage = 1;
+
+  updateImportCardsStatus();
+  applyFiltersAndRender();
+  showToast('Planilha de Baixa de Recebimentos removida.', 'info');
+}
+
+/**
+ * Configuração dos inputs e zonas de upload separados
  */
 function setupSeparateUploads() {
   // Input 1: Planilha de Contrato Financeiro
@@ -469,6 +564,31 @@ function setupSeparateUploads() {
 
   if (dropzoneBaixa) {
     setupCardDragDrop(dropzoneBaixa, inputBaixa, processBaixaFile);
+  }
+
+  // Botões de remoção de anexos (Botão X em cada card)
+  const btnRemoveContrato = document.getElementById('btnRemoverContrato');
+  if (btnRemoveContrato) {
+    btnRemoveContrato.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removerAnexoContrato();
+    });
+  }
+
+  const btnRemoveReceb = document.getElementById('btnRemoverRecebimentos');
+  if (btnRemoveReceb) {
+    btnRemoveReceb.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removerAnexoRecebimentos();
+    });
+  }
+
+  const btnRemoveBaixa = document.getElementById('btnRemoverBaixa');
+  if (btnRemoveBaixa) {
+    btnRemoveBaixa.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removerAnexoBaixa();
+    });
   }
 }
 
@@ -1462,19 +1582,15 @@ if (btnClearDue) {
 
 /**
  * ==============================================================================
- * EXPORTAÇÃO EXCEL COM DATA DE VENCIMENTO E STATUS DE BOLETO
+ * EXPORTAÇÃO EXCEL PROFISSIONAL FORMATADA PARA ANÁLISE
  * ==============================================================================
  */
 
-function exportToExcel() {
-  if (!window.XLSX) {
-    showToast('Biblioteca SheetJS não disponível para exportação.', 'error');
-    return;
-  }
-
+export async function exportToExcel() {
   const isFiltered = Boolean(
     state.filters.search || 
     state.filters.emitirBoletos ||
+    state.filters.filtroCartaoLote ||
     state.filters.paymentMethod !== 'Todas' || 
     state.filters.dueStatus !== 'Todos'
   );
@@ -1485,30 +1601,202 @@ function exportToExcel() {
     return;
   }
 
-  const rows = dataToExport.map(item => ({
-    'Nº Contrato': item.codigo,
-    'Aluno': item.aluno,
-    'Status Contrato': item.status_contrato,
-    'Data de Vencimento': item.data_vencimento || 'Pendente',
-    'Modalidades de Pagamento': item.forma_pagamento,
-    'Parcelas Restantes': (item.parcelas_restantes !== null && item.parcelas_restantes !== undefined) ? item.parcelas_restantes : '-',
-    'Parcelas em Atraso': item.parcelas_atrasadas || 0,
-    'Apto Emissão Boleto': isElegivelBoleto(item, state.filters.apenasModalidadeBoleto) ? 'SIM' : 'NÃO',
-    'Telefone Celular': item.telefone_celular || '',
-    'Responsável Financeiro': item.resp_financeiro || '',
-    'Colaborador Consultor': item.consultor || ''
-  }));
-
-  const worksheet = window.XLSX.utils.json_to_sheet(rows);
-  const workbook = window.XLSX.utils.book_new();
-  const sheetTitle = state.filters.emitirBoletos ? 'Emissao Boletos Trimestral' : 'Contrato Financeiro';
-  window.XLSX.utils.book_append_sheet(workbook, worksheet, sheetTitle);
-
   const dateStr = new Date().toISOString().slice(0, 10);
   const fileName = state.filters.emitirBoletos 
     ? `Emissao_Boletos_Microlins_${dateStr}.xlsx`
     : `Relatorio_Contrato_Financeiro_${dateStr}.xlsx`;
+  const sheetTitle = state.filters.emitirBoletos ? 'Emissao_Boletos' : 'Contrato_Financeiro';
 
+  // 1. Motor Primário: ExcelJS (Gera planilha altamente formatada com estilos, cores e layout profissional)
+  if (window.ExcelJS) {
+    try {
+      showLoading(true, 'Gerando planilha Excel formatada...');
+      const ExcelJS = window.ExcelJS;
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'Microlins Potirendaba';
+      wb.created = new Date();
+
+      const ws = wb.addWorksheet(sheetTitle, {
+        views: [{ state: 'frozen', xSplit: 0, ySplit: 1, showGridLines: true }]
+      });
+
+      // Definição das colunas principais (espelhando a visualização da tabela na interface)
+      const columns = [
+        { header: 'Nº CONTRATO', key: 'codigo', width: 16 },
+        { header: 'ALUNO', key: 'aluno', width: 36 },
+        { header: 'VENCIMENTO', key: 'vencimento', width: 18 },
+        { header: 'MODALIDADES DE PAGAMENTO', key: 'modalidade', width: 32 },
+        { header: 'PARCELAS RESTANTES', key: 'restantes', width: 22 },
+        { header: 'PARCELAS EM ATRASO', key: 'atrasadas', width: 22 },
+        { header: 'APTO P/ BOLETO', key: 'apto_boleto', width: 18 },
+        { header: 'TELEFONE', key: 'telefone', width: 20 },
+        { header: 'STATUS', key: 'status', width: 16 }
+      ];
+      ws.columns = columns;
+
+      // Estilização do Cabeçalho Superior (Linha 1) - Azul Microlins com Texto Branco
+      const headerRow = ws.getRow(1);
+      headerRow.height = 30;
+      headerRow.eachCell((cell, colNumber) => {
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F3B7D' } };
+        cell.alignment = { vertical: 'middle', horizontal: colNumber === 2 ? 'left' : 'center', wrapText: true };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF0F3B7D' } },
+          bottom: { style: 'medium', color: { argb: 'FF0A2652' } },
+          left: { style: 'thin', color: { argb: 'FF1E4B8F' } },
+          right: { style: 'thin', color: { argb: 'FF1E4B8F' } }
+        };
+      });
+
+      // Inserção das Linhas de Dados com Estilo e Cores Inteligentes
+      dataToExport.forEach((item, index) => {
+        const isApto = isElegivelBoleto(item, state.filters.apenasModalidadeBoleto);
+        const atraso = item.parcelas_atrasadas || 0;
+        const restantesVal = (item.parcelas_restantes !== null && item.parcelas_restantes !== undefined)
+          ? item.parcelas_restantes
+          : '-';
+        const vencText = item.data_vencimento || 'Pendente';
+        const modalidadeText = item.perfil_pagamento === 'CARTAO_LOTE'
+          ? (item.forma_pagamento ? `${item.forma_pagamento} (Cartão 6x+)` : 'Cartão de Crédito (Lote 6x+)')
+          : (item.forma_pagamento || '-');
+
+        const row = ws.addRow({
+          codigo: item.codigo,
+          aluno: item.aluno || '',
+          vencimento: vencText,
+          modalidade: modalidadeText,
+          restantes: restantesVal,
+          atrasadas: atraso,
+          apto_boleto: isApto ? 'SIM' : 'NÃO',
+          telefone: item.telefone_celular || item.telefone_residencial || '',
+          status: item.status_contrato || 'Ativo'
+        });
+
+        row.height = 22;
+
+        const isEven = index % 2 === 0;
+        const rowBg = isEven ? 'FFF8FAFC' : 'FFFFFFFF';
+
+        row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+          cell.font = { name: 'Calibri', size: 10.5, color: { argb: 'FF1E293B' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+          };
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+          // Coluna 1: Nº Contrato
+          if (colNumber === 1) {
+            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF0F3B7D' } };
+          }
+          // Coluna 2: Aluno
+          else if (colNumber === 2) {
+            cell.alignment = { vertical: 'middle', horizontal: 'left' };
+            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
+          }
+          // Coluna 3: Vencimento
+          else if (colNumber === 3) {
+            if (item.data_vencimento) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } };
+              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF047857' } };
+            } else {
+              cell.font = { name: 'Calibri', size: 10.5, color: { argb: 'FF94A3B8' } };
+            }
+          }
+          // Coluna 4: Modalidades
+          else if (colNumber === 4) {
+            cell.alignment = { vertical: 'middle', horizontal: 'left' };
+          }
+          // Coluna 5: Parcelas Restantes
+          else if (colNumber === 5) {
+            cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF0F172A' } };
+          }
+          // Coluna 6: Parcelas em Atraso
+          else if (colNumber === 6) {
+            if (atraso > 0) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF2F2' } };
+              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FFDC2626' } };
+            } else {
+              cell.font = { name: 'Calibri', size: 10.5, color: { argb: 'FF94A3B8' } };
+            }
+          }
+          // Coluna 7: Apto p/ Boleto
+          else if (colNumber === 7) {
+            if (isApto) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+              cell.font = { name: 'Calibri', size: 10.5, bold: true, color: { argb: 'FF16A34A' } };
+            } else {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+              cell.font = { name: 'Calibri', size: 10.5, color: { argb: 'FF64748B' } };
+            }
+          }
+          // Coluna 9: Status
+          else if (colNumber === 9) {
+            cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF1D4ED8' } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } };
+          }
+        });
+      });
+
+      // AutoFilter em todas as colunas
+      ws.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: dataToExport.length + 1, column: columns.length }
+      };
+
+      // Gravação e download via Blob do navegador
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      showToast(`${dataToExport.length} contratos exportados para Excel com formatação profissional!`, 'success');
+      return;
+    } catch (errExcelJS) {
+      console.warn('[Export] Falha com ExcelJS, recorrendo ao SheetJS:', errExcelJS);
+    } finally {
+      showLoading(false);
+    }
+  }
+
+  // 2. Motor Secundário: SheetJS (Fallback resiliente)
+  if (!window.XLSX) {
+    showToast('Biblioteca de exportação não disponível.', 'error');
+    return;
+  }
+
+  const rows = dataToExport.map(item => ({
+    'Nº CONTRATO': item.codigo,
+    'ALUNO': item.aluno,
+    'VENCIMENTO': item.data_vencimento || 'Pendente',
+    'MODALIDADES DE PAGAMENTO': item.forma_pagamento || '-',
+    'PARCELAS RESTANTES': (item.parcelas_restantes !== null && item.parcelas_restantes !== undefined) ? item.parcelas_restantes : '-',
+    'PARCELAS EM ATRASO': item.parcelas_atrasadas || 0,
+    'APTO P/ BOLETO': isElegivelBoleto(item, state.filters.apenasModalidadeBoleto) ? 'SIM' : 'NÃO',
+    'TELEFONE': item.telefone_celular || item.telefone_residencial || '',
+    'STATUS': item.status_contrato || 'Ativo'
+  }));
+
+  const worksheet = window.XLSX.utils.json_to_sheet(rows);
+  worksheet['!cols'] = [
+    { wch: 16 }, { wch: 36 }, { wch: 18 }, { wch: 32 },
+    { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 20 }, { wch: 16 }
+  ];
+  worksheet['!autofilter'] = { ref: `A1:I${rows.length + 1}` };
+  worksheet['!views'] = [{ state: 'frozen', ySplit: 1 }];
+
+  const workbook = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(workbook, worksheet, sheetTitle);
   window.XLSX.writeFile(workbook, fileName);
   showToast(`${rows.length} contratos exportados para Excel com sucesso!`, 'success');
 }

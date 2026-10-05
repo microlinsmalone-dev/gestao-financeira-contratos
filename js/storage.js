@@ -626,6 +626,45 @@ class DataStorage {
   }
 
   /**
+   * Remove dados derivados exclusivamente da planilha de Recebimentos de Contratos
+   */
+  removeRecebimentosData() {
+    let count = 0;
+    for (const record of this.memoryData.values()) {
+      record.parcelas_restantes = null;
+      record.parcelas_atrasadas = 0;
+      delete record.parcelas_pagas;
+      delete record.historico_recebimentos;
+      delete record.ultima_data_vencimento;
+      record.updated_at = new Date().toISOString();
+      count++;
+    }
+    this._saveToLocalStorage();
+    return count;
+  }
+
+  /**
+   * Remove dados derivados exclusivamente da planilha de Baixa de Recebimentos
+   */
+  removeBaixaData() {
+    let count = 0;
+    for (const record of this.memoryData.values()) {
+      delete record.perfil_pagamento;
+      delete record.pagamento_lote_cartao;
+      delete record.lapada_cartao;
+      delete record.proximo_vencimento_real;
+      delete record.total_pago_acumulado;
+      delete record.qtd_parcelas_pagas;
+      delete record.qtd_parcelas_abertas;
+      delete record.historico_baixas;
+      record.updated_at = new Date().toISOString();
+      count++;
+    }
+    this._saveToLocalStorage();
+    return count;
+  }
+
+  /**
    * Gera arquivo JSON para backup completo
    */
   exportBackupJSON() {

@@ -9,8 +9,9 @@
   <!-- Favicon SVG Microlins -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f3b7d'/><path d='M8 24V8h4l4 7 4-7h4v16h-4v-9l-4 7h-0.5l-4-7v9H8z' fill='%23ffffff'/><rect x='26' y='8' width='3' height='16' fill='%23d91a2a'/></svg>">
 
-  <!-- CDNs Externos Seguros (SheetJS & Supabase) -->
+  <!-- CDNs Externos Seguros (SheetJS, ExcelJS & Supabase) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="js/exceljs.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
   <!-- Folhas de Estilo Modulares -->
@@ -39,23 +40,8 @@
       </div>
 
       <div class="header-actions">
-        <!-- Indicador de Status Supabase / Local -->
-        <div id="cloudStatusIndicator" class="status-indicator status-offline" title="Verificando conexão...">
-          <span class="status-pulse"></span>
-          <span>Conectando...</span>
-        </div>
-
-        <!-- Botão Configurações -->
-        <button id="btnConfiguracoes" class="btn btn-secondary btn-sm" title="Configurações e Nuvem">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-          </svg>
-          <span>Nuvem / Opções</span>
-        </button>
-
         <!-- Botão Exportar Excel -->
-        <button id="btnExportarExcel" class="btn btn-secondary btn-sm" title="Exportar planilha com vencimentos preenchidos">
+        <button id="btnExportarExcel" class="btn btn-export-excel btn-sm" title="Exportar planilha formatada para análise no Excel">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
             <polyline points="7 10 12 15 17 10"></polyline>
@@ -166,7 +152,15 @@
           <div class="import-card-body">
             <div class="import-card-title-row">
               <h3>Relatório de Contrato Financeiro</h3>
-              <span id="badgeStatusContrato" class="badge-upload-status badge-upload-ready">Disponível</span>
+              <div class="import-card-status-group">
+                <span id="badgeStatusContrato" class="badge-upload-status badge-upload-ready">Disponível</span>
+                <button type="button" id="btnRemoverContrato" class="btn-remove-attachment" title="Remover anexo e desanexar este relatório" aria-label="Remover anexo">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
             </div>
             <p>Contratos, modalidades declaradas (Boleto, Pix, Cartão) e valores base.</p>
           </div>
@@ -195,7 +189,15 @@
           <div class="import-card-body">
             <div class="import-card-title-row">
               <h3>Recebimentos de Contratos</h3>
-              <span id="badgeStatusRecebimentos" class="badge-upload-status badge-upload-ready">Analítico</span>
+              <div class="import-card-status-group">
+                <span id="badgeStatusRecebimentos" class="badge-upload-status badge-upload-ready">Analítico</span>
+                <button type="button" id="btnRemoverRecebimentos" class="btn-remove-attachment" title="Remover anexo e desanexar este relatório" aria-label="Remover anexo">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
             </div>
             <p>Parcelas restantes reais, parcelas em atraso, contatos e datas de cobrança.</p>
           </div>
@@ -223,7 +225,15 @@
           <div class="import-card-body">
             <div class="import-card-title-row">
               <h3>Baixa de Recebimentos</h3>
-              <span id="badgeStatusBaixa" class="badge-upload-status badge-upload-ready">Transacional</span>
+              <div class="import-card-status-group">
+                <span id="badgeStatusBaixa" class="badge-upload-status badge-upload-ready">Transacional</span>
+                <button type="button" id="btnRemoverBaixa" class="btn-remove-attachment" title="Remover anexo e desanexar este relatório" aria-label="Remover anexo">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
             </div>
             <p>Extrato real de caixa, detecção de Cartão 6x+ (em lote) e coberturas.</p>
           </div>
