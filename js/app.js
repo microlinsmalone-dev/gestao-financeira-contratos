@@ -1,41 +1,50 @@
 /**
- * ORQUESTRADOR PRINCIPAL DA APLICAÇÃO (APP.JS)
+ * APLICAÇÃO PRINCIPAL - GESTÃO FINANCEIRA DE CONTRATOS
+ * MICROLINS POTIRENDABA
  * 
  * Controla:
- * - Ciclo de vida e carregamento inicial de dados
- * - Renderização da tabela e métricas do dashboard
- * - Busca em tempo real e filtros combinados
- * - Popover rápido de Data de Vencimento (Auto-save)
- * - Importação Excel (Drag & Drop e Seletor)
- * - Exportação para Excel e JSON
- * - Paginação e ordenação interativa
+ * - Filtros em tempo real e busca inteligente
+ * - Filtro automático 'Emitir Boletos' (trimestral)
+ * - Exibição exclusiva de alunos ativos
+ * - Renderização de parcelas restantes e indicador de inadimplência
+ * - Cruzamento de 'Planilha de Contrato Financeiro' e 'Recebimentos de Contratos'
  */
 
 import { CONFIG } from './config.js';
 import { storage } from './storage.js';
+import { 
+  importContratoFile, 
+  importRecebimentosFile, 
+  importBaixaRecebimentosFile,
+  importExcelFile,
+  parseExcelData,
+  normalizeHeader,
+  parseSafeNumber 
+} from './excel-importer.js';
 import { renderPaymentBadges, normalizeMethodKey } from './payment-badges.js';
-import { importExcelFile, parseExcelData } from './excel-importer.js';
-import {
-  initModals,
-  openAddStudentModal,
-  openDeleteConfirmModal,
-  openSettingsModal,
-  closeAllModals
+import { 
+  initModals, 
+  openModal, 
+  closeModal, 
+  openDeleteConfirmModal, 
+  openSettingsModal 
 } from './modals.js';
 
-// Estado global da interface
+// Estado global da aplicação
 const state = {
   allContracts: [],
   filteredContracts: [],
   currentPage: 1,
   itemsPerPage: CONFIG.DEFAULT_ITEMS_PER_PAGE,
-  sortField: 'aluno',
+  sortField: 'codigo',
   sortAsc: true,
   filters: {
     search: '',
-    status: 'Todos',
     paymentMethod: 'Todas',
-    dueStatus: 'Todos' // 'Todos', 'Com Vencimento', 'Pendente'
+    dueStatus: 'Todos',
+    emitirBoletos: false,
+    apenasModalidadeBoleto: true,
+    filtroCartaoLote: false
   },
   activePopover: {
     isOpen: false,
@@ -45,7 +54,7 @@ const state = {
 };
 
 /**
- * Ponto de entrada após o carregamento da DOM
+ * Ponto de entrada do sistema
  */
 document.addEventListener('DOMContentLoaded', async () => {
   setupToastContainer();
@@ -55,19 +64,91 @@ document.addEventListener('DOMContentLoaded', async () => {
     showToast: showToast
   });
 
-  // Mostra indicador de carregamento inicial
-  showLoading(true, 'Iniciando sistema e conectando ao Supabase...');
+  showLoading(true, 'Iniciando sistema e conectando ao banco de dados...');
 
   try {
     state.allContracts = await storage.init();
+
+    // Auto-carregamento inteligente inicial das planilhas locais
+    const precisaCarregarContratos = state.allContracts.length === 0;
+    const precisaEnriquecerBaixa = state.allContracts.length > 0 && !state.allContracts.some(c => c.perfil_pagamento);
+
+    if (precisaCarregarContratos || precisaEnriquecerBaixa) {
+      try {
+        let recarregou = false;
+
+        if (precisaCarregarContratos) {
+          const resp1 = await fetch(encodeURI('Relatório Contrato Financeiro.xlsx'));
+          if (resp1.ok) {
+            const buf1 = await resp1.arrayBuffer();
+            const p1 = await parseExcelData(buf1);
+            await storage.upsertContratos(p1.data);
+            recarregou = true;
+            const b1 = document.getElementById('badgeStatusContrato');
+            if (b1) { b1.textContent = 'Carregada'; b1.className = 'badge-upload-status badge-upload-loaded'; }
+          }
+
+          const resp2 = await fetch(encodeURI('Recebimentos de Contratos.xlsx'));
+          if (resp2.ok) {
+            const buf2 = await resp2.arrayBuffer();
+            const p2 = await parseExcelData(buf2);
+            await storage.mergeRecebimentos(p2.data);
+            recarregou = true;
+            const b2 = document.getElementById('badgeStatusRecebimentos');
+            if (b2) { b2.textContent = 'Atualizado'; b2.className = 'badge-upload-status badge-upload-loaded'; }
+          }
+        }
+
+        // Tenta sempre carregar a Baixa de Recebimentos se disponível
+        try {
+          const resp3 = await fetch(encodeURI('Baixa de Recebimentos.xlsx'));
+          if (resp3.ok) {
+            const buf3 = await resp3.arrayBuffer();
+            const p3 = await parseExcelData(buf3);
+            if (p3.type === 'baixa_recebimentos') {
+              await storage.mergeBaixaRecebimentos(p3.data);
+              recarregou = true;
+              const b3 = document.getElementById('badgeStatusBaixa');
+              if (b3) { b3.textContent = 'Processada'; b3.className = 'badge-upload-status badge-upload-loaded'; }
+            }
+          }
+        } catch (eBaixa) {
+          console.info('[App] Baixa de Recebimentos não carregada automaticamente:', eBaixa);
+        }
+
+        if (recarregou) {
+          state.allContracts = storage.getAllContratos();
+        }
+      } catch (errAuto) {
+        console.info('[App] Inicialização padrão sem auto-carregamento:', errAuto);
+      }
+    }
+
+    // Se já tinha contratos mas queremos atualizar os badges visuais dos cards
+    if (state.allContracts.length > 0) {
+      const b1 = document.getElementById('badgeStatusContrato');
+      if (b1) { b1.textContent = 'Carregada'; b1.className = 'badge-upload-status badge-upload-loaded'; }
+      const hasReceb = state.allContracts.some(c => c.parcelas_restantes !== undefined && c.parcelas_restantes !== null);
+      if (hasReceb) {
+        const b2 = document.getElementById('badgeStatusRecebimentos');
+        if (b2) { b2.textContent = 'Atualizado'; b2.className = 'badge-upload-status badge-upload-loaded'; }
+      }
+      const hasBaixa = state.allContracts.some(c => c.perfil_pagamento);
+      if (hasBaixa) {
+        const b3 = document.getElementById('badgeStatusBaixa');
+        if (b3) { b3.textContent = 'Processada'; b3.className = 'badge-upload-status badge-upload-loaded'; }
+      }
+    }
+
     updateCloudStatusBadge();
     applyFiltersAndRender();
 
-    // Se o banco estiver vazio no primeiro acesso, sugere carregar a planilha
     if (state.allContracts.length === 0) {
-      showToast('Bem-vindo! Importe a planilha de controle financeiro para começar.', 'info', 6000);
+      showToast('Bem-vindo! Importe o Relatório de Contrato Financeiro para começar.', 'info', 6000);
     } else {
-      showToast(`${state.allContracts.length} contratos carregados com sucesso.`, 'success');
+      const lotes = state.allContracts.filter(c => c.perfil_pagamento === 'CARTAO_LOTE').length;
+      const loteMsg = lotes > 0 ? ` (${lotes} alunos em Cartão 6x+)` : '';
+      showToast(`${state.allContracts.length} contratos ativos carregados com sucesso${loteMsg}.`, 'success');
     }
   } catch (err) {
     console.error('[App] Erro na inicialização:', err);
@@ -95,7 +176,7 @@ function updateCloudStatusBadge() {
   const badge = document.getElementById('cloudStatusIndicator');
   if (!badge) return;
 
-  const status = storage.getSyncStatus();
+  const status = storage.syncStatus;
   if (status.isConnected) {
     badge.className = 'status-indicator status-online';
     badge.innerHTML = '<span class="status-pulse"></span><span>Supabase Nuvem</span>';
@@ -125,11 +206,41 @@ function setupEventListeners() {
     });
   }
 
-  // Filtro de Status do Contrato
-  const filterStatus = document.getElementById('selectFiltroStatus');
-  if (filterStatus) {
-    filterStatus.addEventListener('change', (e) => {
-      state.filters.status = e.target.value;
+  // Botão Filtro Rápido 'Emitir Boletos'
+  const btnEmitirBoletos = document.getElementById('btnEmitirBoletos');
+  if (btnEmitirBoletos) {
+    btnEmitirBoletos.addEventListener('click', () => {
+      state.filters.emitirBoletos = !state.filters.emitirBoletos;
+      if (state.filters.emitirBoletos) {
+        btnEmitirBoletos.classList.add('is-active');
+      } else {
+        btnEmitirBoletos.classList.remove('is-active');
+      }
+      state.currentPage = 1;
+      applyFiltersAndRender();
+    });
+  }
+
+  // Checkbox 'Apenas modalidade Boleto'
+  const checkApenasBoleto = document.getElementById('checkApenasBoleto');
+  if (checkApenasBoleto) {
+    checkApenasBoleto.addEventListener('change', (e) => {
+      state.filters.apenasModalidadeBoleto = e.target.checked;
+      state.currentPage = 1;
+      applyFiltersAndRender();
+    });
+  }
+
+  // Botão Filtro Rápido 'Cartão em Lote (6x+)'
+  const btnFiltroCartaoLote = document.getElementById('btnFiltroCartaoLote');
+  if (btnFiltroCartaoLote) {
+    btnFiltroCartaoLote.addEventListener('click', () => {
+      state.filters.filtroCartaoLote = !state.filters.filtroCartaoLote;
+      if (state.filters.filtroCartaoLote) {
+        btnFiltroCartaoLote.classList.add('is-active');
+      } else {
+        btnFiltroCartaoLote.classList.remove('is-active');
+      }
       state.currentPage = 1;
       applyFiltersAndRender();
     });
@@ -190,7 +301,41 @@ function setupEventListeners() {
     btnExportExcel.addEventListener('click', exportToExcel);
   }
 
-  // Configurações do Modal de Configurações
+  // Configurações do Modal de Nuvem / Backup
+  setupSettingsModalActions();
+
+  // Upload dos dois arquivos de Excel separados
+  setupSeparateUploads();
+
+  // Fechar popover de vencimento ao clicar fora
+  document.addEventListener('click', (e) => {
+    if (state.activePopover.isOpen) {
+      const popoverEl = document.getElementById('dueDatePopover');
+      if (popoverEl && !popoverEl.contains(e.target) && !e.target.closest('.due-date-trigger')) {
+        closeDueDatePopover();
+      }
+    }
+  });
+
+  // Ordenação por colunas da tabela
+  document.querySelectorAll('th[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const field = th.dataset.sort;
+      if (state.sortField === field) {
+        state.sortAsc = !state.sortAsc;
+      } else {
+        state.sortField = field;
+        state.sortAsc = true;
+      }
+      applyFiltersAndRender();
+    });
+  });
+}
+
+/**
+ * Configuração dos botões do modal de configurações e backup
+ */
+function setupSettingsModalActions() {
   const btnTestConn = document.getElementById('btnTestarConexao');
   if (btnTestConn) {
     btnTestConn.addEventListener('click', async () => {
@@ -200,8 +345,7 @@ function setupEventListeners() {
       if (success) {
         showToast('Conexão com Supabase restabelecida com sucesso!', 'success');
       } else {
-        const status = storage.getSyncStatus();
-        showToast(status.errorMessage || 'Supabase inacessível no momento. Continuando em modo local.', 'warning', 6000);
+        showToast(storage.syncStatus.errorMessage || 'Supabase inacessível no momento. Continuando em modo local.', 'warning', 6000);
       }
       openSettingsModal();
       updateCloudStatusBadge();
@@ -213,8 +357,9 @@ function setupEventListeners() {
     btnSyncAll.addEventListener('click', async () => {
       showLoading(true, 'Sincronizando contratos com a nuvem...');
       try {
-        const res = await storage.syncAllToSupabase();
-        showToast(`${res.total} contratos sincronizados na nuvem Supabase!`, 'success');
+        const records = Array.from(storage.memoryData.values());
+        await storage._batchUpsertSupabase(records);
+        showToast(`${records.length} contratos sincronizados na nuvem Supabase!`, 'success');
         openSettingsModal();
         updateCloudStatusBadge();
       } catch (err) {
@@ -252,9 +397,9 @@ function setupEventListeners() {
       reader.onload = async (evt) => {
         try {
           showLoading(true, 'Restaurando backup JSON...');
-          const result = await storage.importBackupJSON(evt.target.result);
+          const total = await storage.importBackupJSON(evt.target.result);
           handleDataReload();
-          showToast(`Backup restaurado! ${result.total} contratos processados.`, 'success');
+          showToast(`Backup restaurado! ${total} contratos processados.`, 'success');
           closeAllModals();
         } catch (err) {
           showToast(err.message, 'error');
@@ -266,43 +411,233 @@ function setupEventListeners() {
       reader.readAsText(file);
     });
   }
+}
 
-  // Upload de Excel via File Input
-  const excelFileInput = document.getElementById('excelFileInput');
-  if (excelFileInput) {
-    excelFileInput.addEventListener('change', handleExcelUpload);
+/**
+ * Configuração dos dois inputs e zonas de upload separados
+ */
+function setupSeparateUploads() {
+  // Input 1: Planilha de Contrato Financeiro
+  const inputContrato = document.getElementById('excelFileInputContrato');
+  const dropzoneContrato = document.getElementById('dropzoneContrato');
+
+  if (inputContrato) {
+    inputContrato.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        await processContratoFile(file);
+        inputContrato.value = '';
+      }
+    });
   }
 
-  // Drag and Drop para importação de Excel
-  setupDragAndDrop();
+  if (dropzoneContrato) {
+    setupCardDragDrop(dropzoneContrato, inputContrato, processContratoFile);
+  }
 
-  // Fechar popover de vencimento ao clicar fora
-  document.addEventListener('click', (e) => {
-    if (state.activePopover.isOpen) {
-      const popoverEl = document.getElementById('dueDatePopover');
-      if (popoverEl && !popoverEl.contains(e.target) && !e.target.closest('.due-date-trigger')) {
-        closeDueDatePopover();
+  // Input 2: Recebimentos de Contratos
+  const inputReceb = document.getElementById('excelFileInputRecebimentos');
+  const dropzoneReceb = document.getElementById('dropzoneRecebimentos');
+
+  if (inputReceb) {
+    inputReceb.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        await processRecebimentosFile(file);
+        inputReceb.value = '';
       }
+    });
+  }
+
+  if (dropzoneReceb) {
+    setupCardDragDrop(dropzoneReceb, inputReceb, processRecebimentosFile);
+  }
+
+  // Input 3: Baixa de Recebimentos
+  const inputBaixa = document.getElementById('excelFileInputBaixa');
+  const dropzoneBaixa = document.getElementById('dropzoneBaixa');
+
+  if (inputBaixa) {
+    inputBaixa.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        await processBaixaFile(file);
+        inputBaixa.value = '';
+      }
+    });
+  }
+
+  if (dropzoneBaixa) {
+    setupCardDragDrop(dropzoneBaixa, inputBaixa, processBaixaFile);
+  }
+}
+
+function setupCardDragDrop(dropzone, inputEl, processFn) {
+  ['dragenter', 'dragover'].forEach(eventName => {
+    dropzone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.add('drag-over');
+    }, false);
+  });
+
+  ['dragleave', 'drop'].forEach(eventName => {
+    dropzone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.remove('drag-over');
+    }, false);
+  });
+
+  dropzone.addEventListener('drop', async (e) => {
+    const dt = e.dataTransfer;
+    const file = dt.files?.[0];
+    if (file) {
+      await processFn(file);
     }
   });
 
-  // Ordenação por colunas da tabela
-  document.querySelectorAll('th[data-sort]').forEach(th => {
-    th.addEventListener('click', () => {
-      const field = th.dataset.sort;
-      if (state.sortField === field) {
-        state.sortAsc = !state.sortAsc;
-      } else {
-        state.sortField = field;
-        state.sortAsc = true;
-      }
-      applyFiltersAndRender();
-    });
+  dropzone.addEventListener('click', (e) => {
+    if (!e.target.closest('button')) {
+      inputEl?.click();
+    }
   });
 }
 
 /**
- * Utilitário de normalização de texto para busca insensível a acentos e maiúsculas
+ * Processamento da Planilha de Contrato Financeiro
+ */
+async function processContratoFile(file) {
+  if (!file.name.match(/\.(xlsx|xls)$/i)) {
+    showToast('Por favor, selecione um arquivo Excel válido (.xlsx ou .xls)', 'warning');
+    return;
+  }
+
+  showLoading(true, `Lendo Relatório de Contrato Financeiro "${file.name}"...`);
+
+  try {
+    const stats = await importContratoFile(file);
+    handleDataReload();
+
+    const badge = document.getElementById('badgeStatusContrato');
+    if (badge) {
+      badge.textContent = 'Carregada';
+      badge.className = 'badge-upload-status badge-upload-loaded';
+    }
+
+    const msg = `Relatório de Contrato Financeiro processado!\n• ${stats.total} contratos ativos atualizados\n• ${stats.added || 0} novos inseridos\n• ${stats.preservedDueDates || 0} vencimentos preservados`;
+    showToast(msg, 'success', 6000);
+  } catch (err) {
+    console.error('[Contrato] Falha ao importar:', err);
+    showToast('Erro ao importar Planilha de Contrato: ' + err.message, 'error', 6000);
+  } finally {
+    showLoading(false);
+  }
+}
+
+/**
+ * Processamento do relatório de Recebimentos de Contratos
+ */
+async function processRecebimentosFile(file) {
+  if (!file.name.match(/\.(xlsx|xls)$/i)) {
+    showToast('Por favor, selecione um arquivo Excel válido (.xlsx ou .xls)', 'warning');
+    return;
+  }
+
+  showLoading(true, `Lendo relatório de Recebimentos "${file.name}"...`);
+
+  try {
+    const stats = await importRecebimentosFile(file);
+    handleDataReload();
+
+    const badge = document.getElementById('badgeStatusRecebimentos');
+    if (badge) {
+      badge.textContent = 'Atualizado';
+      badge.className = 'badge-upload-status badge-upload-loaded';
+    }
+
+    const msg = `Recebimentos de Contratos processado com sucesso!\n• ${stats.total} contratos analisados\n• Parcelas restantes e atrasos atualizados\n• Cruzamento realizado pelo Nº do Contrato`;
+    showToast(msg, 'success', 6000);
+  } catch (err) {
+    console.error('[Recebimentos] Falha ao importar:', err);
+    showToast('Erro ao importar Recebimentos: ' + err.message, 'error', 6000);
+  } finally {
+    showLoading(false);
+  }
+}
+
+/**
+ * Processamento do relatório de Baixa de Recebimentos (Extrato e Detecção de Cartão 6x+)
+ */
+async function processBaixaFile(file) {
+  if (!file.name.match(/\.(xlsx|xls)$/i)) {
+    showToast('Por favor, selecione um arquivo Excel válido (.xlsx ou .xls)', 'warning');
+    return;
+  }
+
+  showLoading(true, `Lendo Baixa de Recebimentos "${file.name}"...`);
+
+  try {
+    const stats = await importBaixaRecebimentosFile(file);
+    handleDataReload();
+
+    const badge = document.getElementById('badgeStatusBaixa');
+    if (badge) {
+      badge.textContent = 'Processada';
+      badge.className = 'badge-upload-status badge-upload-loaded';
+    }
+
+    const lotesCount = state.allContracts.filter(c => c.perfil_pagamento === 'CARTAO_LOTE').length;
+    const msg = `Baixa de Recebimentos processada com sucesso!\n• ${stats.total} contratos enriquecidos com extrato real de caixa\n• ${lotesCount} alunos identificados com Cartão 6x+ (em lote)\n• Prazos de cobertura e próximos vencimentos calculados`;
+    showToast(msg, 'success', 6000);
+  } catch (err) {
+    console.error('[Baixa] Falha ao importar:', err);
+    showToast('Erro ao importar Baixa de Recebimentos: ' + err.message, 'error', 6000);
+  } finally {
+    showLoading(false);
+  }
+}
+
+/**
+ * Regra de Negócio: Verifica se o contrato é elegível para emissão de boletos trimestrais
+ */
+export function isElegivelBoleto(contrato, apenasBoleto = true) {
+  if (!contrato) return false;
+  if (contrato.ignorar_emissao_boleto) return false;
+
+  // 1. Deve ser ativo
+  const isAtivo = contrato.status_contrato && 
+    contrato.status_contrato.toLowerCase().includes('ativo') && 
+    !contrato.status_contrato.toLowerCase().includes('inativo');
+  if (!isAtivo) return false;
+
+  // 2. Não quitado e com pelo menos 3 parcelas restantes (emissão trimestral)
+  const restantes = contrato.parcelas_restantes !== undefined && contrato.parcelas_restantes !== null
+    ? Number(contrato.parcelas_restantes)
+    : null;
+
+  if (restantes === null || restantes < 3) return false;
+
+  // 3. Sem parcelas em atraso (inadimplentes fora)
+  const atrasadas = Number(contrato.parcelas_atrasadas) || 0;
+  if (atrasadas > 0) return false;
+
+  // 4. Se o aluno paga no Cartão em Lote (6x+), ele NÃO deve receber carnê de boletos!
+  if (contrato.perfil_pagamento === 'CARTAO_LOTE') {
+    return false;
+  }
+
+  // 5. Modalidade de pagamento
+  if (apenasBoleto) {
+    const forma = (contrato.forma_pagamento || '').toLowerCase();
+    if (!forma.includes('boleto')) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Utilitário de normalização de texto para busca
  */
 function normalizeSearchText(str) {
   if (!str) return '';
@@ -318,22 +653,30 @@ function normalizeSearchText(str) {
  */
 function resetFilters() {
   state.filters.search = '';
-  state.filters.status = 'Todos';
   state.filters.paymentMethod = 'Todas';
   state.filters.dueStatus = 'Todos';
+  state.filters.emitirBoletos = false;
+  state.filters.apenasModalidadeBoleto = true;
+  state.filters.filtroCartaoLote = false;
   state.currentPage = 1;
 
   const searchInput = document.getElementById('inputBusca');
   if (searchInput) searchInput.value = '';
-
-  const filterStatus = document.getElementById('selectFiltroStatus');
-  if (filterStatus) filterStatus.value = 'Todos';
 
   const filterPayment = document.getElementById('selectFiltroModalidade');
   if (filterPayment) filterPayment.value = 'Todas';
 
   const filterDue = document.getElementById('selectFiltroVencimento');
   if (filterDue) filterDue.value = 'Todos';
+
+  const btnEmitirBoletos = document.getElementById('btnEmitirBoletos');
+  if (btnEmitirBoletos) btnEmitirBoletos.classList.remove('is-active');
+
+  const btnCartaoLote = document.getElementById('btnFiltroCartaoLote');
+  if (btnCartaoLote) btnCartaoLote.classList.remove('is-active');
+
+  const checkApenasBoleto = document.getElementById('checkApenasBoleto');
+  if (checkApenasBoleto) checkApenasBoleto.checked = true;
 
   applyFiltersAndRender();
   showToast('Filtros restaurados.', 'info');
@@ -343,47 +686,66 @@ function resetFilters() {
  * Aplica busca, filtros e ordenação aos contratos e atualiza a view
  */
 function applyFiltersAndRender() {
-  const { search, status, paymentMethod, dueStatus } = state.filters;
+  const { search, paymentMethod, dueStatus, emitirBoletos, apenasModalidadeBoleto, filtroCartaoLote } = state.filters;
   const normalizedSearch = normalizeSearchText(search);
 
+  // Calcula a quantidade global de aptos para boletos para atualizar o contador
+  const totalElegiveisBoletos = state.allContracts.filter(c => isElegivelBoleto(c, apenasModalidadeBoleto)).length;
+  const badgeCountBoletos = document.getElementById('badgeCountBoletos');
+  if (badgeCountBoletos) {
+    badgeCountBoletos.textContent = totalElegiveisBoletos;
+  }
+
+  // Atualiza contador de contratos com Cartão em Lote (6x+)
+  const totalCartaoLote = state.allContracts.filter(c => c.perfil_pagamento === 'CARTAO_LOTE').length;
+  const badgeCountCartaoLote = document.getElementById('badgeCountCartaoLote');
+  if (badgeCountCartaoLote) {
+    badgeCountCartaoLote.textContent = totalCartaoLote;
+  }
+
   state.filteredContracts = state.allContracts.filter(item => {
-    // 1. Busca por texto (Código, Aluno ou Consultor) com tolerância rigorosa a acentuação
+    // 1. Busca por texto (Nº Contrato ou Aluno)
     if (normalizedSearch) {
       const matchCodigo = String(item.codigo).includes(normalizedSearch);
       const matchAluno = normalizeSearchText(item.aluno_normalizado || item.aluno).includes(normalizedSearch);
-      const matchConsultor = normalizeSearchText(item.consultor).includes(normalizedSearch);
-
-      if (!matchCodigo && !matchAluno && !matchConsultor) {
+      if (!matchCodigo && !matchAluno) {
         return false;
       }
     }
 
-    // 2. Filtro de Status
-    if (status !== 'Todos') {
-      if (status === 'Ativo') {
-        if (!item.status_contrato || !item.status_contrato.toLowerCase().includes('ativo') || item.status_contrato.toLowerCase().includes('inativo')) {
-          return false;
-        }
-      } else if (status === 'Inativo/Desistente') {
-        if (!item.status_contrato || !item.status_contrato.toLowerCase().includes('inativo')) {
-          return false;
-        }
+    // 2. Filtro Especial 'Emitir Boletos'
+    if (emitirBoletos) {
+      if (!isElegivelBoleto(item, apenasModalidadeBoleto)) {
+        return false;
       }
     }
 
-    // 3. Filtro de Modalidade de Pagamento
-    if (paymentMethod !== 'Todas') {
-      const itemMethods = (item.forma_pagamento || '').toLowerCase();
-      const targetNorm = normalizeMethodKey(paymentMethod);
+    // 3. Filtro Especial 'Cartão em Lote (6x+)'
+    if (filtroCartaoLote) {
+      if (item.perfil_pagamento !== 'CARTAO_LOTE') {
+        return false;
+      }
+    }
 
-      if (targetNorm === 'sem registro') {
-        if (itemMethods && !itemMethods.includes('sem registro') && itemMethods.trim() !== '') {
-          return false;
-        }
+    // 4. Filtro de Modalidade de Pagamento
+    if (paymentMethod !== 'Todas') {
+      if (paymentMethod === 'Cartão em Lote') {
+        if (item.perfil_pagamento !== 'CARTAO_LOTE') return false;
+      } else if (paymentMethod === 'Cartão Mensal') {
+        if (item.perfil_pagamento !== 'CARTAO_MENSAL') return false;
       } else {
-        const itemNorm = normalizeMethodKey(itemMethods);
-        if (!itemNorm.includes(targetNorm)) {
-          return false;
+        const itemMethods = (item.forma_pagamento || '').toLowerCase();
+        const targetNorm = normalizeMethodKey(paymentMethod);
+
+        if (targetNorm === 'sem registro') {
+          if (itemMethods && !itemMethods.includes('sem registro') && itemMethods.trim() !== '') {
+            return false;
+          }
+        } else {
+          const itemNorm = normalizeMethodKey(itemMethods);
+          if (!itemNorm.includes(targetNorm)) {
+            return false;
+          }
         }
       }
     }
@@ -401,7 +763,7 @@ function applyFiltersAndRender() {
   // Ordenação dos resultados
   sortFilteredData();
 
-  // Garante que a página atual não ultrapasse o total de páginas existentes
+  // Paginação segura
   const totalPages = Math.max(1, Math.ceil(state.filteredContracts.length / state.itemsPerPage));
   if (state.currentPage > totalPages) {
     state.currentPage = totalPages;
@@ -429,9 +791,9 @@ function sortFilteredData() {
       return (Number(valA) - Number(valB)) * modifier;
     }
 
-    if (field === 'valor_parcela' || field === 'valor_pago_total' || field === 'qtd_parcelas') {
-      const numA = Number(valA) || 0;
-      const numB = Number(valB) || 0;
+    if (field === 'parcelas_restantes' || field === 'valor_parcela' || field === 'qtd_parcelas') {
+      const numA = (valA !== null && valA !== undefined) ? Number(valA) : -1;
+      const numB = (valB !== null && valB !== undefined) ? Number(valB) : -1;
       return (numA - numB) * modifier;
     }
 
@@ -439,7 +801,7 @@ function sortFilteredData() {
       const hasA = Boolean(valA && String(valA).trim());
       const hasB = Boolean(valB && String(valB).trim());
       if (!hasA && !hasB) return 0;
-      if (!hasA) return 1; // Registros sem vencimento ficam sempre ao final
+      if (!hasA) return 1;
       if (!hasB) return -1;
 
       const extractDay = (val) => {
@@ -449,7 +811,6 @@ function sortFilteredData() {
       return (extractDay(valA) - extractDay(valB)) * modifier;
     }
 
-    // Ordenação padrão por string alfabética
     valA = (valA || '').toString().toLowerCase();
     valB = (valB || '').toString().toLowerCase();
     return valA.localeCompare(valB, 'pt-BR') * modifier;
@@ -461,28 +822,39 @@ function sortFilteredData() {
  */
 function renderMetrics() {
   const total = state.allContracts.length;
-  let ativos = 0;
   let comVencimento = 0;
   let pendentes = 0;
+  let aptosBoleto = 0;
 
   for (const c of state.allContracts) {
-    const isAtivo = c.status_contrato && c.status_contrato.toLowerCase().includes('ativo') && !c.status_contrato.toLowerCase().includes('inativo');
-    if (isAtivo) ativos++;
-
     if (c.data_vencimento && c.data_vencimento.trim()) {
       comVencimento++;
     } else {
       pendentes++;
     }
+
+    if (isElegivelBoleto(c, state.filters.apenasModalidadeBoleto)) {
+      aptosBoleto++;
+    }
   }
 
-  const pctAtivos = total > 0 ? ((ativos / total) * 100).toFixed(0) : 0;
+  const pctAptos = total > 0 ? ((aptosBoleto / total) * 100).toFixed(0) : 0;
   const pctVenc = total > 0 ? ((comVencimento / total) * 100).toFixed(0) : 0;
 
-  document.getElementById('metricTotalContratos').textContent = total.toLocaleString('pt-BR');
-  document.getElementById('metricContratosAtivos').textContent = `${ativos.toLocaleString('pt-BR')} (${pctAtivos}%)`;
-  document.getElementById('metricComVencimento').textContent = `${comVencimento.toLocaleString('pt-BR')} (${pctVenc}%)`;
-  document.getElementById('metricSemVencimento').textContent = pendentes.toLocaleString('pt-BR');
+  const elTotal = document.getElementById('metricTotalContratos');
+  if (elTotal) elTotal.textContent = total.toLocaleString('pt-BR');
+
+  const elAtivos = document.getElementById('metricContratosAtivos');
+  if (elAtivos) elAtivos.textContent = `${aptosBoleto.toLocaleString('pt-BR')} (${pctAptos}%)`;
+
+  const elLabelAtivos = elAtivos?.closest('.metric-card')?.querySelector('.metric-label');
+  if (elLabelAtivos) elLabelAtivos.textContent = 'Aptos p/ Boletos';
+
+  const elComVenc = document.getElementById('metricComVencimento');
+  if (elComVenc) elComVenc.textContent = `${comVencimento.toLocaleString('pt-BR')} (${pctVenc}%)`;
+
+  const elSemVenc = document.getElementById('metricSemVencimento');
+  if (elSemVenc) elSemVenc.textContent = pendentes.toLocaleString('pt-BR');
 }
 
 /**
@@ -498,7 +870,7 @@ function renderTable() {
   if (total === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" class="table-empty-state">
+        <td colspan="6" class="table-empty-state">
           <div class="empty-state-content">
             <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="11" cy="11" r="8"></circle>
@@ -516,7 +888,6 @@ function renderTable() {
     return;
   }
 
-  // Cálculo de corte da paginação
   const startIndex = (state.currentPage - 1) * state.itemsPerPage;
   const endIndex = Math.min(startIndex + state.itemsPerPage, total);
   const pageRows = state.filteredContracts.slice(startIndex, endIndex);
@@ -527,36 +898,30 @@ function renderTable() {
     const tr = document.createElement('tr');
     tr.dataset.codigo = contrato.codigo;
 
-    // Status formatado
-    const isAtivo = contrato.status_contrato && contrato.status_contrato.toLowerCase().includes('ativo') && !contrato.status_contrato.toLowerCase().includes('inativo');
-    const statusPillClass = isAtivo ? 'pill-status-ativo' : 'pill-status-inativo';
-    const statusLabel = isAtivo ? 'Ativo' : 'Inativo';
-
     // Formatação de vencimento
     const hasDueDate = Boolean(contrato.data_vencimento && contrato.data_vencimento.trim());
     const dueDateDisplay = hasDueDate ? formatDueBadgeText(contrato.data_vencimento) : '+ Definir Dia';
     const dueDateBtnClass = hasDueDate ? 'due-badge-defined' : 'due-badge-empty';
 
-    // Valores
-    const parcelasInfo = formatParcelasInfo(contrato.qtd_parcelas, contrato.valor_parcela);
+    // Formatação de Parcelas Restantes
+    const parcelasHtml = formatParcelasInfo(contrato);
+
+    // Indicador visual de boleto ignorado
+    const isIgnorado = Boolean(contrato.ignorar_emissao_boleto);
 
     tr.innerHTML = `
       <td class="col-codigo">
         <span class="code-badge" title="Clique para copiar" data-copy="${contrato.codigo}">
-          #${contrato.codigo}
+          ${contrato.codigo}
         </span>
       </td>
       <td class="col-aluno">
-        <div class="student-cell">
+        <div class="student-cell" data-detalhes="${contrato.codigo}" style="cursor: pointer;" title="Clique para ver o extrato financeiro detalhado deste aluno">
           <div class="student-avatar">${getInitials(contrato.aluno)}</div>
           <div class="student-info">
             <span class="student-name">${escapeHtml(contrato.aluno)}</span>
-            <span class="student-consultor">${escapeHtml(contrato.consultor || 'Consultor não informado')}</span>
           </div>
         </div>
-      </td>
-      <td class="col-status">
-        <span class="status-pill-badge ${statusPillClass}">${statusLabel}</span>
       </td>
       <td class="col-vencimento">
         <button class="due-date-trigger ${dueDateBtnClass}" 
@@ -572,13 +937,30 @@ function renderTable() {
         </button>
       </td>
       <td class="col-modalidades">
-        ${renderPaymentBadges(contrato.forma_pagamento)}
+        ${renderPaymentBadges(contrato)}
       </td>
       <td class="col-parcelas">
-        <span class="parcelas-text">${parcelasInfo}</span>
+        ${parcelasHtml}
       </td>
       <td class="col-acoes">
         <div class="row-actions">
+          <button class="btn-action-icon btn-view-extrato" data-codigo="${contrato.codigo}" title="Ver extrato e histórico financeiro">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+          </button>
+          <button class="btn-action-icon btn-toggle-boleto ${isIgnorado ? 'btn-boleto-ignored' : ''}" 
+                  data-codigo="${contrato.codigo}" 
+                  title="${isIgnorado ? 'Aluno excluído da emissão de boleto. Clique para reativar.' : 'Clique para ignorar/excluir este aluno da emissão de boletos'}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <rect x="2" y="5" width="20" height="14" rx="2"></rect>
+              <line x1="2" y1="10" x2="22" y2="10"></line>
+            </svg>
+          </button>
           <button class="btn-action-icon btn-delete-row" data-codigo="${contrato.codigo}" data-aluno="${escapeHtml(contrato.aluno)}" title="Excluir contrato">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="3 6 5 6 21 6"></polyline>
@@ -595,8 +977,6 @@ function renderTable() {
   }
 
   tbody.appendChild(fragment);
-
-  // Anexa ouvintes de clique específicos da tabela
   attachTableDynamicEvents();
 }
 
@@ -604,12 +984,44 @@ function renderTable() {
  * Conecta ouvintes às células dinâmicas da tabela
  */
 function attachTableDynamicEvents() {
-  // Triggers do Popover de Data de Vencimento
+  // Abertura do Extrato / Detalhes ao clicar no Aluno ou no botão de extrato
+  document.querySelectorAll('[data-detalhes]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const codigo = el.dataset.detalhes;
+      openDetalhesAlunoModal(codigo);
+    });
+  });
+
+  document.querySelectorAll('.btn-view-extrato').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const codigo = btn.dataset.codigo;
+      openDetalhesAlunoModal(codigo);
+    });
+  });
+
+  // Popover de Data de Vencimento
   document.querySelectorAll('.due-date-trigger').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const codigo = btn.dataset.codigo;
       openDueDatePopover(codigo, btn);
+    });
+  });
+
+  // Alternar ignorar boleto
+  document.querySelectorAll('.btn-toggle-boleto').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const codigo = btn.dataset.codigo;
+      const updated = await storage.toggleIgnorarBoleto(codigo);
+      if (updated) {
+        const itemAll = state.allContracts.find(c => String(c.codigo) === String(codigo));
+        if (itemAll) itemAll.ignorar_emissao_boleto = updated.ignorar_emissao_boleto;
+        applyFiltersAndRender();
+        showToast(`Contrato ${codigo}: ${updated.ignorar_emissao_boleto ? 'marcado para ignorar boletos' : 'reativado para emissão de boletos'}`, 'info', 2500);
+      }
     });
   });
 
@@ -627,9 +1039,118 @@ function attachTableDynamicEvents() {
     el.addEventListener('click', () => {
       const code = el.dataset.copy;
       navigator.clipboard?.writeText(code);
-      showToast(`Código #${code} copiado!`, 'info', 2000);
+      showToast(`Nº do Contrato ${code} copiado!`, 'info', 2000);
     });
   });
+}
+
+/**
+ * Abre o modal com o extrato financeiro completo e histórico de baixas do aluno
+ */
+function openDetalhesAlunoModal(codigo) {
+  const contrato = state.allContracts.find(c => String(c.codigo) === String(codigo));
+  if (!contrato) return;
+
+  const nomeEl = document.getElementById('detalhesAlunoNome');
+  const codigoEl = document.getElementById('detalhesAlunoCodigoBadge');
+  const perfilEl = document.getElementById('detalhesPerfilBadge');
+  const parcelasEl = document.getElementById('detalhesParcelasRestantes');
+  const totalPagoEl = document.getElementById('detalhesTotalPago');
+  const vencEl = document.getElementById('detalhesProximoVencimento');
+  const loteBanner = document.getElementById('detalhesLoteBanner') || document.getElementById('detalhesLapadaBanner');
+  const loteTexto = document.getElementById('detalhesLoteTexto') || document.getElementById('detalhesLapadaTexto');
+  const baixasBody = document.getElementById('detalhesTabelaBaixasBody');
+  const totalBaixasCount = document.getElementById('detalhesTotalBaixasCount');
+
+  if (nomeEl) nomeEl.textContent = contrato.aluno;
+  if (codigoEl) codigoEl.textContent = `Contrato nº ${contrato.codigo}`;
+
+  // Perfil badge
+  if (perfilEl) {
+    if (contrato.perfil_pagamento === 'CARTAO_LOTE') {
+      perfilEl.innerHTML = `<span class="badge-cartao-lote"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg><span>Cartão em Lote (6x+)</span></span>`;
+    } else if (contrato.perfil_pagamento === 'CARTAO_MENSAL') {
+      perfilEl.innerHTML = `<span class="badge-cartao-mensal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg><span>Cartão Mês a Mês</span></span>`;
+    } else if (contrato.perfil_pagamento) {
+      perfilEl.innerHTML = `<span style="font-weight: 600;">${escapeHtml(contrato.perfil_pagamento)}</span>`;
+    } else {
+      perfilEl.textContent = contrato.forma_pagamento || 'Normal';
+    }
+  }
+
+  // Parcelas restantes
+  if (parcelasEl) {
+    if (contrato.parcelas_restantes === 0) {
+      parcelasEl.innerHTML = '<span class="text-success font-bold">0 (Quitado)</span>';
+    } else if (contrato.parcelas_restantes !== undefined && contrato.parcelas_restantes !== null) {
+      const atr = Number(contrato.parcelas_atrasadas) || 0;
+      const atrTxt = atr > 0 ? ` <span style="font-size: 0.8rem; color: var(--accent); font-weight: 600;">(${atr} em atraso)</span>` : '';
+      parcelasEl.innerHTML = `${contrato.parcelas_restantes} restantes${atrTxt}`;
+    } else {
+      parcelasEl.textContent = '-';
+    }
+  }
+
+  // Total pago acumulado
+  if (totalPagoEl) {
+    const val = Number(contrato.total_pago_acumulado) || Number(contrato.valor_pago_total) || 0;
+    totalPagoEl.textContent = `R$ ${val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+  }
+
+  // Próximo vencimento
+  if (vencEl) {
+    vencEl.textContent = contrato.proximo_vencimento_real || contrato.data_vencimento || 'Não informado';
+  }
+
+  // Banner de Pagamento em Lote no Cartão se houver
+  if (loteBanner && loteTexto) {
+    const lote = contrato.pagamento_lote_cartao || contrato.lapada_cartao;
+    if (contrato.perfil_pagamento === 'CARTAO_LOTE' && lote) {
+      loteBanner.style.display = 'flex';
+      loteTexto.innerHTML = `
+        <div style="font-weight: 700; color: #581c87; margin-bottom: 2px;">Pagamento em Lote no Cartão Detectado</div>
+        <div>O aluno realizou um pagamento em lote de <strong>R$ ${lote.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong> (~${lote.equiv_parcelas}x parcelas) no cartão em <strong>${lote.data}</strong>.</div>
+        ${contrato.proximo_vencimento_real ? `<div style="margin-top: 2px; color: #6b21a8;">Período coberto até o próximo vencimento em <strong>${contrato.proximo_vencimento_real}</strong>.</div>` : ''}
+      `;
+    } else {
+      loteBanner.style.display = 'none';
+    }
+  }
+
+  // Extrato das Baixas
+  if (baixasBody) {
+    baixasBody.innerHTML = '';
+    const historico = contrato.historico_baixas || [];
+    if (totalBaixasCount) totalBaixasCount.textContent = `${historico.length} lançamento(s)`;
+
+    if (historico.length === 0) {
+      baixasBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 18px;">Nenhum lançamento transacional encontrado para este contrato. Importe a planilha 'Baixa de Recebimentos' para visualizar o extrato de caixa.</td></tr>`;
+    } else {
+      for (const item of historico) {
+        const isPaid = item.valor_pago !== null && Number(item.valor_pago) > 0;
+        const vlrPagoFormatted = isPaid ? `R$ ${Number(item.valor_pago).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-';
+        const vlrFormatted = item.valor ? `R$ ${Number(item.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-';
+
+        const rowTr = document.createElement('tr');
+        if (isPaid && (item.forma || '').toLowerCase().includes('cart')) {
+          rowTr.style.background = '#faf5ff';
+        }
+        rowTr.innerHTML = `
+          <td style="padding: 6px 12px; font-weight: 600;">${escapeHtml(item.ordem)}</td>
+          <td style="padding: 6px 12px;">${escapeHtml(item.tipo)}</td>
+          <td style="padding: 6px 12px;"><span class="font-mono" style="font-size: 0.78rem;">${escapeHtml(item.forma)}</span></td>
+          <td style="padding: 6px 12px; text-align: right;">${vlrFormatted}</td>
+          <td style="padding: 6px 12px; text-align: right; font-weight: 600; color: ${isPaid ? '#059669' : 'inherit'};">${vlrPagoFormatted}</td>
+          <td style="padding: 6px 12px;">${escapeHtml(item.vencimento || '-')}</td>
+          <td style="padding: 6px 12px;">${escapeHtml(item.pagamento || '-')}</td>
+          <td style="padding: 6px 12px; font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(item.usuario_baixa || '-')}</td>
+        `;
+        baixasBody.appendChild(rowTr);
+      }
+    }
+  }
+
+  openModal('modalDetalhesAluno');
 }
 
 /**
@@ -638,15 +1159,12 @@ function attachTableDynamicEvents() {
 function formatDueBadgeText(venc) {
   if (!venc) return '+ Definir Dia';
   const str = String(venc).trim();
-  // Se for apenas número ("05", "10"), exibe "Dia 05"
-  if (/^\d{1,2}$/.test(str)) {
-    return `Dia ${str.padStart(2, '0')}`;
-  }
-  return str;
+  if (str.toLowerCase().startsWith('dia')) return str;
+  return `Dia ${str}`;
 }
 
 /**
- * Retorna as iniciais do nome do aluno para o avatar
+ * Obtém as iniciais do aluno para o avatar
  */
 function getInitials(name) {
   if (!name) return 'ML';
@@ -656,45 +1174,53 @@ function getInitials(name) {
 }
 
 /**
- * Formata o resumo das parcelas com cálculo correto da mensalidade (ex: "42x de R$ 179,90" e "Total: R$ 7.555,80")
+ * Formata o resumo visual das parcelas restantes e indicadores de inadimplência
  */
-function formatParcelasInfo(qtd, valor) {
-  if (!qtd && !valor) return '-';
+function formatParcelasInfo(contrato) {
+  const restantes = contrato.parcelas_restantes;
+  const atrasadas = Number(contrato.parcelas_atrasadas) || 0;
 
-  const qtdNum = Number(qtd) || 0;
-  const valNum = Number(valor) || 0;
-
-  if (qtdNum > 1 && valNum > 0) {
-    // Na base de dados escolar, valor_parcela é o valor total líquido das parcelas quando >= 500,
-    // e o valor unitário da mensalidade quando < 500. Tratamos ambos com precisão.
-    let valorParcelaUnit;
-    let valorTotal;
-
-    if (valNum >= 500) {
-      valorTotal = valNum;
-      valorParcelaUnit = valNum / qtdNum;
-    } else {
-      valorParcelaUnit = valNum;
-      valorTotal = valNum * qtdNum;
-    }
-
-    const unitFmt = valorParcelaUnit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    const totalFmt = valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-
+  if (restantes === 0) {
     return `
-      <div class="parcelas-detail">
-        <span class="parcelas-main">${qtdNum}x de ${unitFmt}</span>
-        <span class="parcelas-total">Total: ${totalFmt}</span>
+      <span class="badge-parcelas badge-parcelas-quitado" title="Contrato integralmente quitado">
+        <svg class="badge-icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        Quitado
+      </span>
+    `;
+  }
+
+  if (restantes === null || restantes === undefined) {
+    if (contrato.qtd_parcelas) {
+      return `<span class="badge-parcelas badge-parcelas-restantes">${contrato.qtd_parcelas} parcelas</span>`;
+    }
+    return `<span class="badge-parcelas badge-parcelas-pendente">-</span>`;
+  }
+
+  if (atrasadas > 0) {
+    return `
+      <div class="parcelas-stacked">
+        <span class="badge-parcelas badge-parcelas-alerta">
+          ${restantes} restante${restantes > 1 ? 's' : ''}
+        </span>
+        <span class="parcelas-atraso-tag" title="${atrasadas} parcela(s) em atraso (inadimplente)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          ${atrasadas} atrasada${atrasadas > 1 ? 's' : ''}
+        </span>
       </div>
     `;
   }
 
-  if (valNum > 0) {
-    const totalFmt = valNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    return `<span class="parcelas-main">${totalFmt}</span>`;
-  }
-
-  return `<span class="parcelas-main">${qtdNum} parcelas</span>`;
+  return `
+    <span class="badge-parcelas badge-parcelas-restantes">
+      ${restantes} restante${restantes > 1 ? 's' : ''}
+    </span>
+  `;
 }
 
 /**
@@ -722,7 +1248,6 @@ function renderPagination() {
 
   let html = '';
 
-  // Botão Anterior
   html += `
     <button class="btn-page ${state.currentPage === 1 ? 'disabled' : ''}" 
             data-page="${state.currentPage - 1}" 
@@ -732,7 +1257,6 @@ function renderPagination() {
     </button>
   `;
 
-  // Números de páginas com elipses
   const pages = getPaginationPageNumbers(state.currentPage, totalPages);
   for (const p of pages) {
     if (p === '...') {
@@ -743,7 +1267,6 @@ function renderPagination() {
     }
   }
 
-  // Botão Próximo
   html += `
     <button class="btn-page ${state.currentPage === totalPages ? 'disabled' : ''}" 
             data-page="${state.currentPage + 1}" 
@@ -755,7 +1278,6 @@ function renderPagination() {
 
   container.innerHTML = html;
 
-  // Ouvinte nos botões da paginação
   container.querySelectorAll('.btn-page:not(.disabled)').forEach(btn => {
     btn.addEventListener('click', () => {
       const targetPage = parseInt(btn.dataset.page, 10);
@@ -769,9 +1291,6 @@ function renderPagination() {
   });
 }
 
-/**
- * Gera a lista de números de páginas visíveis com elipses
- */
 function getPaginationPageNumbers(current, total) {
   if (total <= 7) {
     return Array.from({ length: total }, (_, i) => i + 1);
@@ -788,9 +1307,6 @@ function getPaginationPageNumbers(current, total) {
   return [1, '...', current - 1, current, current + 1, '...', total];
 }
 
-/**
- * Atualiza indicadores de seta nas colunas de cabeçalho da tabela
- */
 function updateSortingIndicators() {
   document.querySelectorAll('th[data-sort]').forEach(th => {
     const field = th.dataset.sort;
@@ -807,9 +1323,6 @@ function updateSortingIndicators() {
  * ==============================================================================
  */
 
-/**
- * Abre o popover de seleção rápida de vencimento ancorado no botão clicado
- */
 function openDueDatePopover(codigo, targetBtn) {
   const popover = document.getElementById('dueDatePopover');
   if (!popover) return;
@@ -821,13 +1334,11 @@ function openDueDatePopover(codigo, targetBtn) {
   const contrato = storage.getContrato(codigo);
   const currentVal = contrato?.data_vencimento || '';
 
-  // Atualiza campo de entrada livre
   const customInput = document.getElementById('popoverCustomInput');
   if (customInput) {
     customInput.value = currentVal;
   }
 
-  // Destaca o botão pré-definido se coincidir
   popover.querySelectorAll('.btn-popover-preset').forEach(btn => {
     const day = btn.dataset.day;
     if (currentVal === day || currentVal === `Dia ${day}`) {
@@ -837,7 +1348,6 @@ function openDueDatePopover(codigo, targetBtn) {
     }
   });
 
-  // Posiciona o popover abaixo ou acima do botão
   const rect = targetBtn.getBoundingClientRect();
   popover.style.display = 'block';
 
@@ -847,13 +1357,11 @@ function openDueDatePopover(codigo, targetBtn) {
   let left = rect.left + window.scrollX - (popoverWidth / 2) + (rect.width / 2);
   let top = rect.bottom + window.scrollY + 8;
 
-  // Previne sair da tela à direita ou esquerda
   if (left < 10) left = 10;
   if (left + popoverWidth > window.innerWidth - 10) {
     left = window.innerWidth - popoverWidth - 10;
   }
 
-  // Se passar da parte inferior da tela, abre acima do botão
   if (rect.bottom + popoverHeight > window.innerHeight) {
     top = rect.top + window.scrollY - popoverHeight - 8;
   }
@@ -867,9 +1375,6 @@ function openDueDatePopover(codigo, targetBtn) {
   }
 }
 
-/**
- * Fecha o popover de vencimento
- */
 function closeDueDatePopover() {
   const popover = document.getElementById('dueDatePopover');
   if (popover) {
@@ -881,9 +1386,6 @@ function closeDueDatePopover() {
   state.activePopover.targetElement = null;
 }
 
-/**
- * Salva a alteração de vencimento selecionada mantendo sincronizado o estado da memória
- */
 async function saveDueDate(newVal) {
   const codigo = state.activePopover.codigo;
   if (!codigo) return;
@@ -893,7 +1395,6 @@ async function saveDueDate(newVal) {
   try {
     await storage.updateVencimento(codigo, valorFormatado);
 
-    // Sincroniza imediatamente o estado em memória para manter consistência em buscas, filtros e exportações
     const strCod = String(codigo);
     const itemInAll = state.allContracts.find(c => String(c.codigo) === strCod);
     if (itemInAll) {
@@ -906,7 +1407,6 @@ async function saveDueDate(newVal) {
       itemInFiltered.updated_at = new Date().toISOString();
     }
 
-    // Efeito visual no botão de gatilho
     if (state.activePopover.targetElement) {
       const btn = state.activePopover.targetElement;
       const textSpan = btn.querySelector('.due-text');
@@ -919,13 +1419,12 @@ async function saveDueDate(newVal) {
 
     closeDueDatePopover();
     renderMetrics();
-    showToast(`Vencimento do contrato #${codigo} atualizado: ${valorFormatado ? formatDueBadgeText(valorFormatado) : 'removido'}`, 'success', 2500);
+    showToast(`Vencimento do contrato ${codigo} atualizado: ${valorFormatado ? formatDueBadgeText(valorFormatado) : 'removido'}`, 'success', 2500);
   } catch (err) {
     showToast('Erro ao atualizar vencimento: ' + err.message, 'error');
   }
 }
 
-// Configura os botões internos do popover de vencimento
 document.querySelectorAll('.btn-popover-preset').forEach(btn => {
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -963,87 +1462,7 @@ if (btnClearDue) {
 
 /**
  * ==============================================================================
- * IMPORTAÇÃO E DRAG & DROP DO EXCEL
- * ==============================================================================
- */
-
-/**
- * Trata o envio do arquivo via Input File
- */
-async function handleExcelUpload(e) {
-  const file = e.target.files?.[0];
-  if (!file) return;
-
-  await processExcelFile(file);
-  e.target.value = '';
-}
-
-/**
- * Configura a zona de arrastar e soltar (Drag & Drop)
- */
-function setupDragAndDrop() {
-  const dropzone = document.getElementById('excelDropzone');
-  const fileInput = document.getElementById('excelFileInput');
-
-  if (!dropzone) return;
-
-  ['dragenter', 'dragover'].forEach(eventName => {
-    dropzone.addEventListener(eventName, (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      dropzone.classList.add('drag-over');
-    }, false);
-  });
-
-  ['dragleave', 'drop'].forEach(eventName => {
-    dropzone.addEventListener(eventName, (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      dropzone.classList.remove('drag-over');
-    }, false);
-  });
-
-  dropzone.addEventListener('drop', async (e) => {
-    const dt = e.dataTransfer;
-    const file = dt.files?.[0];
-    if (file) {
-      await processExcelFile(file);
-    }
-  });
-
-  dropzone.addEventListener('click', () => {
-    fileInput?.click();
-  });
-}
-
-/**
- * Processa a planilha com feedback de progresso e estatísticas
- */
-async function processExcelFile(file) {
-  if (!file.name.match(/\.(xlsx|xls)$/i)) {
-    showToast('Por favor, selecione um arquivo Excel válido (.xlsx ou .xls)', 'warning');
-    return;
-  }
-
-  showLoading(true, `Lendo "${file.name}" e mesclando dados...`);
-
-  try {
-    const stats = await importExcelFile(file);
-    handleDataReload();
-
-    const msg = `Planilha processada com sucesso!\n• ${stats.total} contratos analisados\n• ${stats.added} novos inseridos\n• ${stats.updated} atualizados\n• ${stats.preservedDueDates} vencimentos preservados intactos`;
-    showToast(msg, 'success', 6000);
-  } catch (err) {
-    console.error('[Excel] Falha ao importar:', err);
-    showToast('Erro ao importar planilha: ' + err.message, 'error', 6000);
-  } finally {
-    showLoading(false);
-  }
-}
-
-/**
- * ==============================================================================
- * EXPORTAÇÃO EXCEL COM DATA DE VENCIMENTO INCLUSA
+ * EXPORTAÇÃO EXCEL COM DATA DE VENCIMENTO E STATUS DE BOLETO
  * ==============================================================================
  */
 
@@ -1053,7 +1472,12 @@ function exportToExcel() {
     return;
   }
 
-  const isFiltered = Boolean(state.filters.search || state.filters.status !== 'Todos' || state.filters.paymentMethod !== 'Todas' || state.filters.dueStatus !== 'Todos');
+  const isFiltered = Boolean(
+    state.filters.search || 
+    state.filters.emitirBoletos ||
+    state.filters.paymentMethod !== 'Todas' || 
+    state.filters.dueStatus !== 'Todos'
+  );
   const dataToExport = isFiltered ? state.filteredContracts : state.allContracts;
 
   if (dataToExport.length === 0) {
@@ -1061,25 +1485,31 @@ function exportToExcel() {
     return;
   }
 
-  // Prepara os dados com colunas amigáveis em português
   const rows = dataToExport.map(item => ({
-    'Código': item.codigo,
+    'Nº Contrato': item.codigo,
     'Aluno': item.aluno,
     'Status Contrato': item.status_contrato,
-    'Data de Vencimento': item.data_vencimento || '',
-    'Forma Pagamento Parcela': item.forma_pagamento,
-    'Colaborador Consultor': item.consultor || '',
-    'Quantidade Parcelas': item.qtd_parcelas || '',
-    'Valor Parcela Líquido': item.valor_parcela || '',
-    'Valor Pago Total': item.valor_pago_total || ''
+    'Data de Vencimento': item.data_vencimento || 'Pendente',
+    'Modalidades de Pagamento': item.forma_pagamento,
+    'Parcelas Restantes': (item.parcelas_restantes !== null && item.parcelas_restantes !== undefined) ? item.parcelas_restantes : '-',
+    'Parcelas em Atraso': item.parcelas_atrasadas || 0,
+    'Apto Emissão Boleto': isElegivelBoleto(item, state.filters.apenasModalidadeBoleto) ? 'SIM' : 'NÃO',
+    'Telefone Celular': item.telefone_celular || '',
+    'Responsável Financeiro': item.resp_financeiro || '',
+    'Colaborador Consultor': item.consultor || ''
   }));
 
   const worksheet = window.XLSX.utils.json_to_sheet(rows);
   const workbook = window.XLSX.utils.book_new();
-  window.XLSX.utils.book_append_sheet(workbook, worksheet, 'Controles e Vencimentos');
+  const sheetTitle = state.filters.emitirBoletos ? 'Emissao Boletos Trimestral' : 'Contrato Financeiro';
+  window.XLSX.utils.book_append_sheet(workbook, worksheet, sheetTitle);
 
   const dateStr = new Date().toISOString().slice(0, 10);
-  window.XLSX.writeFile(workbook, `Relatorio_Controle_Financeiro_Vencimentos_${dateStr}.xlsx`);
+  const fileName = state.filters.emitirBoletos 
+    ? `Emissao_Boletos_Microlins_${dateStr}.xlsx`
+    : `Relatorio_Contrato_Financeiro_${dateStr}.xlsx`;
+
+  window.XLSX.writeFile(workbook, fileName);
   showToast(`${rows.length} contratos exportados para Excel com sucesso!`, 'success');
 }
 
@@ -1147,9 +1577,6 @@ function showLoading(active, text = 'Carregando...') {
   }
 }
 
-/**
- * Utilitário de escape de HTML contra XSS
- */
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)
@@ -1158,4 +1585,10 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function openAddStudentModal() {
+  const form = document.getElementById('formNovoAluno');
+  if (form) form.reset();
+  openModal('modalNovoAluno');
 }

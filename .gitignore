@@ -1,0 +1,8 @@
+# Ambientes e arquivos temporarios
+__pycache__/
+*.pyc
+scratch_*.py
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

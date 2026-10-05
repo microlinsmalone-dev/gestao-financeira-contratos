@@ -5,6 +5,7 @@
  * - Se a nuvem Supabase estiver acessível, sincroniza em tempo real.
  * - Se estiver offline ou sem tabela criada, opera 100% via LocalStorage.
  * - Protege a Data de Vencimento contra sobrescrita durante reimportações do Excel.
+ * - Suporta fusão inteligente de dados cadastrais e de cobrança (Recebimentos).
  */
 
 import { CONFIG } from './config.js';
@@ -94,7 +95,6 @@ class DataStorage {
     }
 
     try {
-      // Busca em páginas de 1000 registros para garantir cobertura completa mesmo com grandes volumes
       let allData = [];
       let from = 0;
       const step = 1000;
@@ -109,62 +109,63 @@ class DataStorage {
           throw error;
         }
 
-        if (!data || data.length === 0) {
-          break;
+        if (!data || data.length === 0) break;
+        allData = allData.concat(data);
+
+        if (data.length < step) break;
+        from += step;
+      }
+
+      if (allData.length > 0) {
+        // Atualiza a memória local preservando edições locais mais recentes
+        for (const remote of allData) {
+          if (!remote || remote.codigo === undefined) continue;
+          const key = String(remote.codigo);
+          const local = this.memoryData.get(key);
+
+          if (!local) {
+            this.memoryData.set(key, remote);
+          } else {
+            // Mescla priorizando dados mais recentes
+            const localUpdated = new Date(local.updated_at || 0).getTime();
+            const remoteUpdated = new Date(remote.updated_at || 0).getTime();
+
+            if (remoteUpdated >= localUpdated) {
+              this.memoryData.set(key, remote);
+            }
+          }
         }
 
-        allData.push(...data);
-        if (data.length < step) {
-          break; // Última página
-        }
-        from += step;
+        this._saveToLocalStorage();
       }
 
       this.syncStatus.isConnected = true;
       this.syncStatus.provider = 'supabase';
+      this.syncStatus.lastSync = new Date().toISOString();
       this.syncStatus.errorMessage = null;
-      this.syncStatus.lastSync = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
       localStorage.setItem(CONFIG.LAST_SYNC_KEY, this.syncStatus.lastSync);
-
-      if (allData.length > 0) {
-        // Se a nuvem tem registros, mesclamos com o local preservando vencimentos locais mais recentes
-        for (const remote of allData) {
-          const key = String(remote.codigo);
-          const local = this.memoryData.get(key);
-
-          if (local && local.data_vencimento && !remote.data_vencimento) {
-            // Se no local já tinha vencimento e na nuvem ainda não, mantém o do local e agenda sync
-            this.memoryData.set(key, { ...remote, data_vencimento: local.data_vencimento });
-            this._asyncPushVencimento(remote.codigo, local.data_vencimento);
-          } else {
-            this.memoryData.set(key, remote);
-          }
-        }
-        this._saveToLocalStorage();
-      } else if (this.memoryData.size > 0) {
-        // Nuvem está vazia mas temos dados locais: sincroniza os locais para a nuvem
-        this.syncAllToSupabase().catch(console.warn);
-      }
-
       return true;
     } catch (err) {
-      let friendlyMsg = err.message || 'Falha de comunicação com o Supabase';
-      if (err.code === 'PGRST205' || friendlyMsg.includes('not find the table') || friendlyMsg.includes('does not exist')) {
-        friendlyMsg = 'Tabela contratos_financeiro não encontrada no Supabase. Execute o script supabase_schema.sql no SQL Editor.';
-      }
-      console.warn('[Storage] Supabase indisponível, usando modo offline:', friendlyMsg);
+      console.warn('[Storage] Conexão com Supabase indisponível. Operando via LocalStorage:', err.message || err);
       this.syncStatus.isConnected = false;
       this.syncStatus.provider = 'local';
-      this.syncStatus.errorMessage = friendlyMsg;
+      this.syncStatus.errorMessage = err.message || 'Falha ao conectar com o Supabase';
       return false;
     }
   }
 
   /**
-   * Retorna lista de todos os contratos em formato de Array
+   * Retorna todos os contratos armazenados em memória (apenas Ativos por padrão)
    */
-  getAllContratos() {
-    return Array.from(this.memoryData.values());
+  getAllContratos(apenasAtivos = true) {
+    const todos = Array.from(this.memoryData.values());
+    if (!apenasAtivos) return todos;
+    return todos.filter(c => {
+      if (!c.status_contrato) return true;
+      const st = c.status_contrato.toLowerCase();
+      return st.includes('ativo') && !st.includes('inativo');
+    });
   }
 
   /**
@@ -176,7 +177,7 @@ class DataStorage {
 
   /**
    * Upsert inteligente: adiciona novos contratos e atualiza existentes,
-   * PRESERVANDO A DATA DE VENCIMENTO já cadastrada!
+   * PRESERVANDO A DATA DE VENCIMENTO e as parcelas restantes já apuradas!
    */
   async upsertContratos(novosContratos) {
     let countAdded = 0;
@@ -202,9 +203,24 @@ class DataStorage {
           dataVencimento = novo.data_vencimento;
         }
 
+        // Se já tínhamos parcelas restantes exatas da planilha de recebimentos, preserva!
+        const parcelasRestantes = (existing.parcelas_restantes !== undefined && existing.parcelas_restantes !== null)
+          ? existing.parcelas_restantes
+          : novo.parcelas_restantes;
+
+        const parcelasAtrasadas = (existing.parcelas_atrasadas !== undefined && existing.parcelas_atrasadas !== null)
+          ? existing.parcelas_atrasadas
+          : (novo.parcelas_atrasadas || 0);
+
         recordToSave = {
+          ...existing,
           ...novo,
           data_vencimento: dataVencimento || null,
+          parcelas_restantes: parcelasRestantes,
+          parcelas_atrasadas: parcelasAtrasadas,
+          telefone_celular: existing.telefone_celular || novo.telefone_celular || '',
+          resp_financeiro: existing.resp_financeiro || novo.resp_financeiro || '',
+          ignorar_emissao_boleto: existing.ignorar_emissao_boleto || false,
           unit_id: CONFIG.UNIT_ID,
           created_at: existing.created_at || new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -214,6 +230,9 @@ class DataStorage {
         recordToSave = {
           ...novo,
           data_vencimento: novo.data_vencimento || null,
+          parcelas_restantes: novo.parcelas_restantes !== undefined ? novo.parcelas_restantes : null,
+          parcelas_atrasadas: novo.parcelas_atrasadas || 0,
+          ignorar_emissao_boleto: false,
           unit_id: CONFIG.UNIT_ID,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -239,6 +258,180 @@ class DataStorage {
       added: countAdded,
       updated: countUpdated,
       preservedDueDates: countPreservedDates
+    };
+  }
+
+  /**
+   * Mesclagem de dados analíticos da planilha 'Recebimentos de Contratos'
+   */
+  async mergeRecebimentos(incomingRecebimentos) {
+    let countUpdated = 0;
+    let countAdded = 0;
+    const listToPersist = [];
+
+    for (const rec of incomingRecebimentos) {
+      if (!rec || rec.codigo === undefined || rec.codigo === null) continue;
+      const key = String(rec.codigo);
+      const existing = this.memoryData.get(key);
+
+      let recordToSave;
+      if (existing) {
+        countUpdated++;
+        recordToSave = {
+          ...existing,
+          parcelas_restantes: rec.parcelas_restantes !== undefined ? rec.parcelas_restantes : existing.parcelas_restantes,
+          parcelas_atrasadas: rec.parcelas_atrasadas !== undefined ? rec.parcelas_atrasadas : (existing.parcelas_atrasadas || 0),
+          parcelas_pagas: rec.parcelas_pagas !== undefined ? rec.parcelas_pagas : existing.parcelas_pagas,
+          ultima_data_vencimento: rec.ultima_data_vencimento || existing.ultima_data_vencimento || null,
+          telefone_celular: rec.telefone_celular || existing.telefone_celular || '',
+          telefone_residencial: rec.telefone_residencial || existing.telefone_residencial || '',
+          resp_financeiro: rec.resp_financeiro || existing.resp_financeiro || '',
+          updated_at: new Date().toISOString()
+        };
+
+        // Sugere dia do vencimento se ainda não estiver definido
+        if (!recordToSave.data_vencimento && rec.ultima_data_vencimento) {
+          const parts = rec.ultima_data_vencimento.split('/');
+          if (parts.length === 3) {
+            recordToSave.data_vencimento = `Dia ${parts[0]}`;
+          }
+        }
+      } else {
+        countAdded++;
+        let dataVenc = null;
+        if (rec.ultima_data_vencimento) {
+          const parts = rec.ultima_data_vencimento.split('/');
+          if (parts.length === 3) {
+            dataVenc = `Dia ${parts[0]}`;
+          }
+        }
+
+        recordToSave = {
+          codigo: rec.codigo,
+          aluno: rec.aluno || `Aluno ${rec.codigo}`,
+          aluno_normalizado: (rec.aluno || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''),
+          status_contrato: 'Ativo',
+          forma_pagamento: 'Sem registro',
+          data_vencimento: dataVenc,
+          consultor: rec.consultor || '',
+          parcelas_restantes: rec.parcelas_restantes || 0,
+          parcelas_atrasadas: rec.parcelas_atrasadas || 0,
+          parcelas_pagas: rec.parcelas_pagas || 0,
+          ultima_data_vencimento: rec.ultima_data_vencimento || null,
+          telefone_celular: rec.telefone_celular || '',
+          telefone_residencial: rec.telefone_residencial || '',
+          resp_financeiro: rec.resp_financeiro || '',
+          ignorar_emissao_boleto: false,
+          unit_id: CONFIG.UNIT_ID,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+      }
+
+      this.memoryData.set(key, recordToSave);
+      listToPersist.push(recordToSave);
+    }
+
+    this._saveToLocalStorage();
+
+    if (this.supabase && this.syncStatus.isConnected && listToPersist.length > 0) {
+      this._batchUpsertSupabase(listToPersist).catch(err => {
+        console.warn('[Storage] Erro no sync em lote de recebimentos com Supabase:', err.message || err);
+      });
+    }
+
+    return {
+      total: listToPersist.length,
+      updated: countUpdated,
+      added: countAdded
+    };
+  }
+
+  /**
+   * Mesclagem de dados transacionais e de inteligência da planilha 'Baixa de Recebimentos'
+   */
+  async mergeBaixaRecebimentos(incomingBaixas) {
+    let countUpdated = 0;
+    let countAdded = 0;
+    const listToPersist = [];
+
+    for (const baixa of incomingBaixas) {
+      if (!baixa || baixa.codigo === undefined || baixa.codigo === null) continue;
+      const key = String(baixa.codigo);
+      const existing = this.memoryData.get(key);
+
+      let recordToSave;
+      if (existing) {
+        countUpdated++;
+        recordToSave = {
+          ...existing,
+          perfil_pagamento: baixa.perfil_pagamento,
+          lapada_cartao: baixa.lapada_cartao || existing.lapada_cartao || null,
+          proximo_vencimento_real: baixa.proximo_vencimento_real || existing.proximo_vencimento_real || null,
+          total_pago_acumulado: baixa.total_pago_acumulado !== undefined ? baixa.total_pago_acumulado : (existing.total_pago_acumulado || 0),
+          qtd_parcelas_pagas: baixa.qtd_parcelas_pagas !== undefined ? baixa.qtd_parcelas_pagas : (existing.qtd_parcelas_pagas || existing.parcelas_pagas || 0),
+          qtd_parcelas_abertas: baixa.qtd_parcelas_abertas !== undefined ? baixa.qtd_parcelas_abertas : (existing.qtd_parcelas_abertas || existing.parcelas_restantes || 0),
+          historico_baixas: baixa.historico_baixas || existing.historico_baixas || [],
+          updated_at: new Date().toISOString()
+        };
+
+        // Se ainda não tinha data de vencimento e a baixa possui próximo vencimento real, sugere
+        if (!recordToSave.data_vencimento && baixa.proximo_vencimento_real) {
+          const parts = baixa.proximo_vencimento_real.split('/');
+          if (parts.length === 3) {
+            recordToSave.data_vencimento = `Dia ${parts[0]}`;
+          }
+        }
+      } else {
+        countAdded++;
+        let dataVenc = null;
+        if (baixa.proximo_vencimento_real) {
+          const parts = baixa.proximo_vencimento_real.split('/');
+          if (parts.length === 3) {
+            dataVenc = `Dia ${parts[0]}`;
+          }
+        }
+
+        recordToSave = {
+          codigo: baixa.codigo,
+          aluno: baixa.aluno || `Aluno ${baixa.codigo}`,
+          aluno_normalizado: (baixa.aluno || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''),
+          status_contrato: 'Ativo',
+          forma_pagamento: baixa.perfil_pagamento === 'CARTAO_LOTE' ? 'Cartão de Crédito' : 'Sem registro',
+          perfil_pagamento: baixa.perfil_pagamento,
+          lapada_cartao: baixa.lapada_cartao || null,
+          proximo_vencimento_real: baixa.proximo_vencimento_real || null,
+          total_pago_acumulado: baixa.total_pago_acumulado || 0,
+          qtd_parcelas_pagas: baixa.qtd_parcelas_pagas || 0,
+          qtd_parcelas_abertas: baixa.qtd_parcelas_abertas || 0,
+          parcelas_restantes: baixa.qtd_parcelas_abertas || 0,
+          parcelas_atrasadas: 0,
+          parcelas_pagas: baixa.qtd_parcelas_pagas || 0,
+          data_vencimento: dataVenc,
+          historico_baixas: baixa.historico_baixas || [],
+          ignorar_emissao_boleto: false,
+          unit_id: CONFIG.UNIT_ID,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+      }
+
+      this.memoryData.set(key, recordToSave);
+      listToPersist.push(recordToSave);
+    }
+
+    this._saveToLocalStorage();
+
+    if (this.supabase && this.syncStatus.isConnected && listToPersist.length > 0) {
+      this._batchUpsertSupabase(listToPersist).catch(err => {
+        console.warn('[Storage] Erro no sync em lote de baixa com Supabase:', err.message || err);
+      });
+    }
+
+    return {
+      total: listToPersist.length,
+      updated: countUpdated,
+      added: countAdded
     };
   }
 
@@ -272,7 +465,7 @@ class DataStorage {
     const existing = this.memoryData.get(key);
 
     if (!existing) {
-      throw new Error(`Contrato #${codigo} não encontrado.`);
+      throw new Error(`Contrato ${codigo} não encontrado.`);
     }
 
     const valorFormatado = novoVencimento ? String(novoVencimento).trim() : null;
@@ -305,18 +498,35 @@ class DataStorage {
   }
 
   /**
-   * Empurra atualização de vencimento em segundo plano
+   * Alterna a flag para ignorar/incluir emissão de boleto manualmente para um aluno
    */
-  async _asyncPushVencimento(codigo, dataVencimento) {
-    if (!this.supabase) return;
-    try {
-      await this.supabase
-        .from(CONFIG.TABLE_NAME)
-        .update({ data_vencimento: dataVencimento })
-        .eq('codigo', codigo);
-    } catch (e) {
-      // Falha silenciosa em background
+  async toggleIgnorarBoleto(codigo, forcarValor = null) {
+    const key = String(codigo);
+    const existing = this.memoryData.get(key);
+    if (!existing) return null;
+
+    const novoValor = forcarValor !== null ? Boolean(forcarValor) : !existing.ignorar_emissao_boleto;
+    existing.ignorar_emissao_boleto = novoValor;
+    existing.updated_at = new Date().toISOString();
+
+    this.memoryData.set(key, existing);
+    this._saveToLocalStorage();
+
+    if (this.supabase) {
+      try {
+        await this.supabase
+          .from(CONFIG.TABLE_NAME)
+          .update({
+            ignorar_emissao_boleto: novoValor,
+            updated_at: new Date().toISOString()
+          })
+          .eq('codigo', codigo);
+      } catch (e) {
+        console.warn('[Storage] Erro ao sincronizar flag ignorar_emissao_boleto:', e);
+      }
     }
+
+    return existing;
   }
 
   /**
@@ -324,13 +534,18 @@ class DataStorage {
    */
   async addContratoManual(contrato) {
     if (!contrato || !contrato.codigo || !contrato.aluno) {
-      throw new Error('Código e Nome do Aluno são obrigatórios.');
+      throw new Error('Nº do Contrato e Nome do Aluno são obrigatórios.');
     }
 
     const key = String(contrato.codigo);
     if (this.memoryData.has(key)) {
-      throw new Error(`Já existe um contrato cadastrado com o código #${contrato.codigo}.`);
+      throw new Error(`Já existe um contrato cadastrado com o número ${contrato.codigo}.`);
     }
+
+    const qtdParcelas = contrato.qtd_parcelas ? Number(contrato.qtd_parcelas) : null;
+    const parcelasRestantes = contrato.parcelas_restantes !== undefined && contrato.parcelas_restantes !== null
+      ? Number(contrato.parcelas_restantes)
+      : qtdParcelas;
 
     const record = {
       codigo: Number(contrato.codigo),
@@ -340,9 +555,12 @@ class DataStorage {
       forma_pagamento: contrato.forma_pagamento || 'Sem registro',
       data_vencimento: contrato.data_vencimento || null,
       consultor: contrato.consultor || '',
-      qtd_parcelas: contrato.qtd_parcelas ? Number(contrato.qtd_parcelas) : null,
+      qtd_parcelas: qtdParcelas,
       valor_parcela: contrato.valor_parcela ? Number(contrato.valor_parcela) : null,
       valor_pago_total: contrato.valor_pago_total ? Number(contrato.valor_pago_total) : 0,
+      parcelas_restantes: parcelasRestantes,
+      parcelas_atrasadas: 0,
+      ignorar_emissao_boleto: false,
       unit_id: CONFIG.UNIT_ID,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -374,7 +592,7 @@ class DataStorage {
   async deleteContrato(codigo) {
     const key = String(codigo);
     if (!this.memoryData.has(key)) {
-      throw new Error(`Contrato #${codigo} não encontrado.`);
+      throw new Error(`Contrato ${codigo} não encontrado.`);
     }
 
     this.memoryData.delete(key);
@@ -399,62 +617,7 @@ class DataStorage {
   }
 
   /**
-   * Exporta todos os dados em formato JSON para download de segurança
-   */
-  exportBackupJSON() {
-    const data = this.getAllContratos();
-    const payload = {
-      unit: 'Microlins Potirendaba',
-      unit_id: CONFIG.UNIT_ID,
-      version: '1.0',
-      exported_at: new Date().toISOString(),
-      total_records: data.length,
-      records: data
-    };
-    return JSON.stringify(payload, null, 2);
-  }
-
-  /**
-   * Importa backup JSON restaurando todos os contratos
-   */
-  async importBackupJSON(jsonString) {
-    try {
-      const parsed = JSON.parse(jsonString);
-      const records = Array.isArray(parsed) ? parsed : (parsed.records || []);
-      if (!Array.isArray(records) || records.length === 0) {
-        throw new Error('O arquivo de backup não contém uma lista válida de contratos.');
-      }
-
-      const res = await this.upsertContratos(records);
-      return res;
-    } catch (err) {
-      throw new Error('Falha ao processar arquivo JSON de backup: ' + err.message);
-    }
-  }
-
-  /**
-   * Sincroniza todos os registros em memória com o Supabase
-   */
-  async syncAllToSupabase() {
-    if (!this.supabase) {
-      throw new Error('Supabase não inicializado.');
-    }
-    const all = this.getAllContratos();
-    if (all.length === 0) {
-      return { total: 0 };
-    }
-
-    await this._batchUpsertSupabase(all);
-    this.syncStatus.isConnected = true;
-    this.syncStatus.provider = 'supabase';
-    this.syncStatus.lastSync = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    localStorage.setItem(CONFIG.LAST_SYNC_KEY, this.syncStatus.lastSync);
-
-    return { total: all.length };
-  }
-
-  /**
-   * Limpa todos os dados locais (com cuidado)
+   * Limpa todos os dados locais
    */
   clearLocalStorageOnly() {
     this.memoryData.clear();
@@ -463,12 +626,44 @@ class DataStorage {
   }
 
   /**
-   * Retorna o status atual da conexão
+   * Gera arquivo JSON para backup completo
    */
-  getSyncStatus() {
-    return { ...this.syncStatus, totalRecords: this.memoryData.size };
+  exportBackupJSON() {
+    const list = Array.from(this.memoryData.values());
+    const backup = {
+      version: '2.0.0',
+      exported_at: new Date().toISOString(),
+      unit: 'Microlins Potirendaba',
+      count: list.length,
+      records: list
+    };
+    return JSON.stringify(backup, null, 2);
+  }
+
+  /**
+   * Restaura contratos a partir de um JSON de backup
+   */
+  async importBackupJSON(jsonString) {
+    const parsed = JSON.parse(jsonString);
+    if (!parsed || !Array.isArray(parsed.records)) {
+      throw new Error('Formato de backup inválido.');
+    }
+
+    for (const item of parsed.records) {
+      if (item && item.codigo !== undefined) {
+        this.memoryData.set(String(item.codigo), item);
+      }
+    }
+
+    this._saveToLocalStorage();
+
+    if (this.supabase && this.syncStatus.isConnected) {
+      const records = Array.from(this.memoryData.values());
+      await this._batchUpsertSupabase(records);
+    }
+
+    return parsed.records.length;
   }
 }
 
-// Singleton export
 export const storage = new DataStorage();

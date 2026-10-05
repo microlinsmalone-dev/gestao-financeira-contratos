@@ -91,6 +91,163 @@
   gap: 6px;
 }
 
+/* Filtro Especial: Emitir Boletos */
+.filter-emitir-boletos-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f8fafc;
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+}
+
+.btn-emitir-boletos {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  color: var(--primary);
+  border: 1px solid #bfdbfe;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-emitir-boletos:hover {
+  background: #eff6ff;
+  border-color: var(--primary);
+}
+
+.btn-emitir-boletos.is-active {
+  background: linear-gradient(135deg, var(--primary) 0%, #1e54a4 100%);
+  color: #ffffff;
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(15, 59, 125, 0.25);
+}
+
+.boletos-badge-count {
+  display: inline-block;
+  background: var(--primary-subtle);
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+}
+
+.btn-emitir-boletos.is-active .boletos-badge-count {
+  background: #ffffff;
+  color: var(--primary);
+}
+
+/* Filtro Especial: Cartão em Lote (6x+) */
+.btn-filtro-cartao-lote {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  color: #7e22ce;
+  border: 1px solid #d8b4fe;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-filtro-cartao-lote:hover {
+  background: #faf5ff;
+  border-color: #a855f7;
+}
+
+.btn-filtro-cartao-lote.is-active {
+  background: linear-gradient(135deg, #7e22ce 0%, #9333ea 100%);
+  color: #ffffff;
+  border-color: #7e22ce;
+  box-shadow: 0 2px 8px rgba(126, 34, 206, 0.25);
+}
+
+.boletos-badge-count.badge-purple {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
+.btn-filtro-cartao-lote.is-active .boletos-badge-count.badge-purple {
+  background: #ffffff;
+  color: #7e22ce;
+}
+
+/* Badges de Perfil Real de Pagamento */
+.badge-cartao-lote {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #f3e8ff;
+  color: #6b21a8;
+  border: 1px solid #d8b4fe;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  cursor: help;
+  transition: all var(--transition-fast);
+}
+
+.badge-cartao-lote:hover {
+  background: #e9d5ff;
+  transform: translateY(-1px);
+}
+
+.badge-cartao-mensal {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: help;
+}
+
+.badge-coberto-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-top: 4px;
+  cursor: help;
+}
+
+.check-apenas-boleto-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.check-apenas-boleto-label input {
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
 .filter-label {
   font-size: 0.78rem;
   font-weight: 600;
@@ -367,7 +524,68 @@
 
 /* Coluna Parcelas */
 .col-parcelas {
-  width: 150px;
+  width: 175px;
+}
+
+.badge-parcelas {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-parcelas-restantes {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.badge-parcelas-quitado {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.badge-parcelas-quitado .badge-icon-check {
+  width: 14px;
+  height: 14px;
+  stroke: #059669;
+}
+
+.badge-parcelas-alerta {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.badge-parcelas-pendente {
+  background: #f8fafc;
+  color: var(--text-muted);
+  border: 1px dashed #cbd5e1;
+}
+
+.parcelas-stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+}
+
+.parcelas-atraso-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.69rem;
+  font-weight: 600;
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
 }
 
 .parcelas-detail {
@@ -386,6 +604,20 @@
   font-size: 0.72rem;
   color: var(--text-muted);
   font-weight: 500;
+}
+
+.btn-toggle-boleto {
+  color: var(--text-muted);
+}
+
+.btn-toggle-boleto:hover {
+  color: var(--primary);
+  background: var(--primary-subtle);
+}
+
+.btn-toggle-boleto.btn-boleto-ignored {
+  color: #ef4444;
+  background: #fef2f2;
 }
 
 /* Coluna Ações */

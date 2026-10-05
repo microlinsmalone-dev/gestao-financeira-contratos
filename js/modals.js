@@ -138,13 +138,13 @@ async function handleAddStudentSubmit(e) {
   const formaPagamentoStr = selectedMethods.length > 0 ? selectedMethods.join(', ') : 'Sem registro';
 
   if (!codigoRaw || !aluno) {
-    toastNotifier?.('Preencha os campos obrigatórios (Código e Aluno)', 'warning');
+    toastNotifier?.('Preencha os campos obrigatórios (Nº do Contrato e Aluno)', 'warning');
     return;
   }
 
   const codigo = parseInt(codigoRaw, 10);
   if (isNaN(codigo) || codigo <= 0) {
-    toastNotifier?.('Código inválido. Digite um número positivo.', 'warning');
+    toastNotifier?.('Nº do Contrato inválido. Digite um número positivo.', 'warning');
     return;
   }
 
@@ -161,7 +161,7 @@ async function handleAddStudentSubmit(e) {
     });
 
     closeModal('modalNovoAluno');
-    toastNotifier?.(`Contrato #${codigo} cadastrado com sucesso!`, 'success');
+    toastNotifier?.(`Contrato ${codigo} cadastrado com sucesso!`, 'success');
 
     if (typeof onDataChangedCallback === 'function') {
       onDataChangedCallback();
@@ -178,7 +178,7 @@ export function openDeleteConfirmModal(codigo, nomeAluno) {
   currentDeleteCodigo = codigo;
   const msgEl = document.getElementById('deleteModalDescricao');
   if (msgEl) {
-    msgEl.innerHTML = `Tem certeza que deseja excluir o contrato <strong>#${codigo} - ${nomeAluno}</strong>? Esta ação removerá o aluno da listagem permanente.`;
+    msgEl.innerHTML = `Tem certeza que deseja excluir o contrato <strong>${codigo} - ${nomeAluno}</strong>? Esta ação removerá o aluno da listagem permanente.`;
   }
   openModal('modalConfirmDelete');
 }
@@ -191,7 +191,7 @@ async function handleConfirmDelete() {
 
   try {
     await storage.deleteContrato(currentDeleteCodigo);
-    toastNotifier?.(`Contrato #${currentDeleteCodigo} excluído com sucesso.`, 'info');
+    toastNotifier?.(`Contrato ${currentDeleteCodigo} excluído com sucesso.`, 'info');
     closeModal('modalConfirmDelete');
     currentDeleteCodigo = null;
 

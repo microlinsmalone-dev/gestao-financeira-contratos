@@ -134,28 +134,112 @@
       </div>
     </section>
 
-    <!-- Banner de Upload / Drag & Drop do Excel -->
-    <div id="excelDropzone" class="import-banner" title="Clique ou arraste o arquivo Relatório Controle Financeiro.xlsx aqui">
-      <input type="file" id="excelFileInput" accept=".xlsx, .xls" style="display: none;">
-      <div class="import-banner-left">
-        <div class="import-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="17 8 12 3 7 8"></polyline>
-            <line x1="12" y1="3" x2="12" y2="15"></line>
-          </svg>
-        </div>
-        <div class="import-text">
-          <h3>Importar Planilha de Controle Financeiro (.xlsx)</h3>
-          <p>Arraste o arquivo do relatório aqui ou clique para selecionar. As datas de vencimento cadastradas são 100% preservadas.</p>
-        </div>
-      </div>
-      <div class="import-banner-right">
-        <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); document.getElementById('excelFileInput').click();">
-          Selecionar Arquivo
-        </button>
+    <!-- Advertência de Importação: Status de Contratos Ativos -->
+    <div class="import-warning-banner" role="alert">
+      <svg class="import-warning-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </svg>
+      <div class="import-warning-content">
+        <span class="import-warning-label">Advertência:</span>
+        <span>É necessário que as planilhas importadas estejam com o filtro de busca aplicado para contratos com status <strong>Ativos</strong>.</span>
       </div>
     </div>
+
+    <!-- Grid com os Três Banners de Importação de Planilhas -->
+    <section class="import-cards-grid" aria-label="Importação de Planilhas">
+      
+      <!-- Card 1: Relatório de Contrato Financeiro -->
+      <div id="dropzoneContrato" class="import-card" title="Arraste ou clique para selecionar o Relatório de Contrato Financeiro (.xlsx)">
+        <input type="file" id="excelFileInputContrato" accept=".xlsx, .xls" style="display: none;">
+        <div class="import-card-main">
+          <div class="import-card-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+          </div>
+          <div class="import-card-body">
+            <div class="import-card-title-row">
+              <h3>Relatório de Contrato Financeiro</h3>
+              <span id="badgeStatusContrato" class="badge-upload-status badge-upload-ready">Disponível</span>
+            </div>
+            <p>Contratos, modalidades declaradas (Boleto, Pix, Cartão) e valores base.</p>
+          </div>
+        </div>
+        <div class="import-card-footer">
+          <span class="import-card-filter-tag" title="Filtro obrigatório na planilha: Contratos com status Ativo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Status: Contratos Ativos
+          </span>
+          <button type="button" class="btn btn-secondary btn-sm btn-select-file" onclick="event.stopPropagation(); document.getElementById('excelFileInputContrato').click();">
+            Selecionar Arquivo
+          </button>
+        </div>
+      </div>
+
+      <!-- Card 2: Recebimentos de Contratos -->
+      <div id="dropzoneRecebimentos" class="import-card" title="Arraste ou clique para selecionar o relatório de Recebimentos de Contratos (.xlsx)">
+        <input type="file" id="excelFileInputRecebimentos" accept=".xlsx, .xls" style="display: none;">
+        <div class="import-card-main">
+          <div class="import-card-icon import-card-icon-accent">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="5" width="20" height="14" rx="2"></rect>
+              <line x1="2" y1="10" x2="22" y2="10"></line>
+            </svg>
+          </div>
+          <div class="import-card-body">
+            <div class="import-card-title-row">
+              <h3>Recebimentos de Contratos</h3>
+              <span id="badgeStatusRecebimentos" class="badge-upload-status badge-upload-ready">Analítico</span>
+            </div>
+            <p>Parcelas restantes reais, parcelas em atraso, contatos e datas de cobrança.</p>
+          </div>
+        </div>
+        <div class="import-card-footer">
+          <span class="import-card-filter-tag" title="Filtro obrigatório na planilha: Contratos com status Ativo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Status: Contratos Ativos
+          </span>
+          <button type="button" class="btn btn-secondary btn-sm btn-select-file" onclick="event.stopPropagation(); document.getElementById('excelFileInputRecebimentos').click();">
+            Selecionar Arquivo
+          </button>
+        </div>
+      </div>
+
+      <!-- Card 3: Baixa de Recebimentos -->
+      <div id="dropzoneBaixa" class="import-card" title="Arraste ou clique para selecionar a planilha de Baixa de Recebimentos (.xlsx)">
+        <input type="file" id="excelFileInputBaixa" accept=".xlsx, .xls" style="display: none;">
+        <div class="import-card-main">
+          <div class="import-card-icon import-card-icon-purple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </div>
+          <div class="import-card-body">
+            <div class="import-card-title-row">
+              <h3>Baixa de Recebimentos</h3>
+              <span id="badgeStatusBaixa" class="badge-upload-status badge-upload-ready">Transacional</span>
+            </div>
+            <p>Extrato real de caixa, detecção de Cartão 6x+ (em lote) e coberturas.</p>
+          </div>
+        </div>
+        <div class="import-card-footer">
+          <span class="import-card-filter-tag" title="Filtro obrigatório na planilha: Contratos com status Ativo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Status: Contratos Ativos
+          </span>
+          <button type="button" class="btn btn-secondary btn-sm btn-select-file" onclick="event.stopPropagation(); document.getElementById('excelFileInputBaixa').click();">
+            Selecionar Arquivo
+          </button>
+        </div>
+      </div>
+
+    </section>
 
     <!-- Card Principal: Tabela de Dados e Filtros -->
     <section class="table-card">
@@ -169,7 +253,7 @@
               <circle cx="11" cy="11" r="8"></circle>
               <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
-            <input type="text" id="inputBusca" class="search-input" placeholder="Buscar por aluno, código do contrato ou consultor...">
+            <input type="text" id="inputBusca" class="search-input" placeholder="Buscar por aluno ou nº do contrato...">
           </div>
 
           <div class="toolbar-actions">
@@ -186,24 +270,42 @@
 
         <!-- Filtros Avançados -->
         <div class="toolbar-filters-row">
-          <!-- Filtro Status -->
-          <div class="filter-group">
-            <label for="selectFiltroStatus" class="filter-label">Status:</label>
-            <select id="selectFiltroStatus" class="filter-select">
-              <option value="Todos">Todos</option>
-              <option value="Ativo">Ativo</option>
-              <option value="Inativo/Desistente">Inativo / Desistente</option>
-            </select>
+          <!-- Filtro Especial: Emitir Boletos Trimestral -->
+          <div class="filter-emitir-boletos-box">
+            <button type="button" id="btnEmitirBoletos" class="btn-emitir-boletos" title="Filtrar contratos elegíveis para emissão trimestral de boletos (não quitados, parcelas restantes >= 3, sem atraso e sem cartão em lote)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+              </svg>
+              <span>Emitir Boletos</span>
+              <span id="badgeCountBoletos" class="boletos-badge-count">0</span>
+            </button>
+
+            <label class="check-apenas-boleto-label" id="containerCheckApenasBoleto" title="Quando marcado, filtra apenas quem usa a forma de pagamento Boleto">
+              <input type="checkbox" id="checkApenasBoleto" checked>
+              <span>Apenas modalidade Boleto</span>
+            </label>
           </div>
+
+          <!-- Filtro Especial: Cartão em Lote (Lapada 6x+) -->
+          <button type="button" id="btnFiltroCartaoLote" class="btn-filtro-cartao-lote" title="Filtrar contratos que pagam no cartão em lote de no mínimo 6 parcelas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+            <span>Cartão em Lote (6x+)</span>
+            <span id="badgeCountCartaoLote" class="boletos-badge-count badge-purple">0</span>
+          </button>
 
           <!-- Filtro Modalidade de Pagamento -->
           <div class="filter-group">
             <label for="selectFiltroModalidade" class="filter-label">Modalidade:</label>
             <select id="selectFiltroModalidade" class="filter-select">
               <option value="Todas">Todas as formas</option>
+              <option value="Boleto">Boleto</option>
               <option value="PIX">PIX</option>
               <option value="PIX - QR Code">PIX - QR Code</option>
-              <option value="Boleto">Boleto</option>
               <option value="Cartão de Crédito">Cartão de Crédito</option>
               <option value="Cartão de Débito">Cartão de Débito</option>
               <option value="Dinheiro">Dinheiro</option>
@@ -233,21 +335,15 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th data-sort="codigo" style="width: 110px;">
+              <th data-sort="codigo" style="width: 125px;">
                 <div class="th-content">
-                  <span>Código</span>
+                  <span>Nº CONTRATO</span>
                   <svg class="sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </div>
               </th>
               <th data-sort="aluno">
                 <div class="th-content">
-                  <span>Aluno / Consultor</span>
-                  <svg class="sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                </div>
-              </th>
-              <th data-sort="status_contrato" style="width: 120px;">
-                <div class="th-content">
-                  <span>Status</span>
+                  <span>ALUNO</span>
                   <svg class="sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </div>
               </th>
@@ -260,13 +356,13 @@
               <th>
                 <span>Modalidades de Pagamento</span>
               </th>
-              <th data-sort="valor_parcela" style="width: 160px;">
+              <th data-sort="parcelas_restantes" style="width: 175px;">
                 <div class="th-content">
-                  <span>Parcelas</span>
+                  <span>Parcelas Restantes</span>
                   <svg class="sort-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </div>
               </th>
-              <th style="width: 60px; text-align: right;">
+              <th style="width: 80px; text-align: right;">
                 <span>Ações</span>
               </th>
             </tr>
@@ -356,7 +452,7 @@
           <div class="form-grid">
             
             <div class="form-group">
-              <label for="novoCodigo" class="form-label">Código do Contrato <span class="required">*</span></label>
+              <label for="novoCodigo" class="form-label">Nº do Contrato <span class="required">*</span></label>
               <input type="number" id="novoCodigo" class="form-input" placeholder="Ex: 4643900" required>
             </div>
 
@@ -423,6 +519,84 @@
           <button type="submit" class="btn btn-primary">Salvar Aluno</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ==============================================================================
+       MODAL: DETALHES DO CONTRATO E HISTÓRICO DE BAIXAS
+       ============================================================================== -->
+  <div id="modalDetalhesAluno" class="modal-overlay">
+    <div class="modal-dialog modal-dialog-large">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <h3 id="detalhesAlunoNome" style="margin: 0; font-size: 1.15rem; color: var(--text-primary);">Detalhes do Aluno</h3>
+          <span id="detalhesAlunoCodigoBadge" class="code-badge" style="font-size: 0.85rem;">Contrato</span>
+        </div>
+        <button class="modal-close-btn" data-modal-close aria-label="Fechar">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px;">
+        
+        <!-- Cards de Resumo Financeiro -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px;">
+          <div style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 12px 14px;">
+            <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">Perfil Real</span>
+            <div id="detalhesPerfilBadge" style="font-weight: 600; font-size: 0.88rem;">-</div>
+          </div>
+          <div style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 12px 14px;">
+            <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">Parcelas Restantes</span>
+            <div id="detalhesParcelasRestantes" style="font-weight: 700; font-size: 1.1rem; color: var(--text-primary);">-</div>
+          </div>
+          <div style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 12px 14px;">
+            <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">Total Já Pago</span>
+            <div id="detalhesTotalPago" style="font-weight: 700; font-size: 1.1rem; color: #059669;">R$ 0,00</div>
+          </div>
+          <div style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 12px 14px;">
+            <span style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">Próximo Vencimento</span>
+            <div id="detalhesProximoVencimento" style="font-weight: 700; font-size: 1rem; color: var(--text-primary);">-</div>
+          </div>
+        </div>
+
+        <!-- Banner Informativo de Pagamento em Lote (Cartão 6x+) se houver -->
+        <div id="detalhesLoteBanner" style="display: none; background: #faf5ff; border: 1px solid #d8b4fe; border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 20px; align-items: center; gap: 12px; color: #6b21a8;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22" style="flex-shrink: 0;">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          <div id="detalhesLoteTexto" style="font-size: 0.85rem; line-height: 1.4;">
+            <!-- Preenchido via JS -->
+          </div>
+        </div>
+
+        <!-- Tabela de Histórico das Transações Realizadas (Baixas) -->
+        <div style="margin-top: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h4 style="font-size: 0.92rem; font-weight: 700; color: var(--text-primary); margin: 0;">Extrato Transacional de Baixas</h4>
+            <span id="detalhesTotalBaixasCount" style="font-size: 0.75rem; background: #e2e8f0; color: #475569; padding: 2px 8px; border-radius: var(--radius-full); font-weight: 600;">0 lançamentos</span>
+          </div>
+          <div class="table-responsive-wrapper" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-light); border-radius: var(--radius-md);">
+            <table class="data-table" style="font-size: 0.82rem;">
+              <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 2;">
+                <tr>
+                  <th style="width: 70px; padding: 8px 12px;">Ordem</th>
+                  <th style="padding: 8px 12px;">Tipo</th>
+                  <th style="padding: 8px 12px;">Forma Pagto</th>
+                  <th style="padding: 8px 12px; text-align: right;">Valor</th>
+                  <th style="padding: 8px 12px; text-align: right;">Valor Pago</th>
+                  <th style="padding: 8px 12px;">Vencimento</th>
+                  <th style="padding: 8px 12px;">Data Baixa</th>
+                  <th style="padding: 8px 12px;">Usuário</th>
+                </tr>
+              </thead>
+              <tbody id="detalhesTabelaBaixasBody">
+                <!-- Preenchido via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-modal-close>Fechar</button>
+      </div>
     </div>
   </div>
 

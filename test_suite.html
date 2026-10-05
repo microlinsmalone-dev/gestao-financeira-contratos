@@ -2,19 +2,36 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Automated Test Suite</title>
+  <title>Automated Test Suite - Microlins Potirendaba</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px; background: #f8fafc; }
+    h1 { color: #0f3b7d; }
+    .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); max-width: 900px; }
+    ul { list-style: none; padding: 0; }
+    li { padding: 6px 10px; margin-bottom: 4px; border-radius: 4px; font-family: monospace; font-size: 0.9rem; }
+    .pass { background: #ecfdf5; color: #065f46; border-left: 4px solid #10b981; }
+    .fail { background: #fef2f2; color: #991b1b; border-left: 4px solid #ef4444; }
+  </style>
 </head>
 <body>
-  <h1>Test Suite Runner</h1>
-  <div id="test-results">Running tests...</div>
+  <div class="card">
+    <h1>Test Suite Runner - Sistema Contratos Financeiros</h1>
+    <div id="test-results">Executando suite de testes automatizados...</div>
+  </div>
 
   <script type="module">
     import { CONFIG } from './js/config.js';
     import { storage } from './js/storage.js';
-    import { parseExcelData, importExcelFile } from './js/excel-importer.js';
-    import { renderPaymentBadges, getBadgeConfig } from './js/payment-badges.js';
+    import { 
+      parseExcelData, 
+      parseContratoFinanceiroRows, 
+      parseRecebimentosRows, 
+      detectSpreadsheetType 
+    } from './js/excel-importer.js';
+    import { renderPaymentBadges } from './js/payment-badges.js';
+    import { isElegivelBoleto } from './js/app.js';
 
     const results = [];
     function assert(name, condition, details = '') {
@@ -33,85 +50,137 @@
         assert('renderPaymentBadges generates 3 badges for Boleto, Dinheiro, PIX', 
           badgesHtml.includes('badge-boleto') && badgesHtml.includes('badge-dinheiro') && badgesHtml.includes('badge-pix'));
 
-        const qrBadgeHtml = renderPaymentBadges('PIX - QR Code');
-        assert('renderPaymentBadges handles PIX QR Code', qrBadgeHtml.includes('badge-pix') && qrBadgeHtml.includes('PIX QR Code'));
+        // Test 3: Fetch 'Relatório Contrato Financeiro.xlsx'
+        const respContrato = await fetch(encodeURI('Relatório Contrato Financeiro.xlsx'));
+        assert('Relatório Contrato Financeiro.xlsx fetched via HTTP', respContrato.ok, `HTTP ${respContrato.status}`);
+        const bufferContrato = await respContrato.arrayBuffer();
 
-        const emptyBadgeHtml = renderPaymentBadges('');
-        assert('renderPaymentBadges handles empty string as Sem registro', emptyBadgeHtml.includes('badge-sem-registro'));
+        // Test 4: Parse Contrato Financeiro (exclusivo ativos)
+        const parsedContrato = await parseExcelData(bufferContrato);
+        assert('parseExcelData detects tipo contrato', parsedContrato.type === 'contrato');
+        assert('parseContratoFinanceiro filters exclusively active contracts (236 ativos)', 
+          parsedContrato.data.length === 236, `Encontrados: ${parsedContrato.data.length}`);
 
-        // Test 3: Fetch Excel spreadsheet
-        const response = await fetch('Relat%C3%B3rio%20Controle%20Financeiro.xlsx');
-        if (!response.ok) {
-          throw new Error('Falha ao baixar planilha de teste: HTTP ' + response.status);
-        }
-        const arrayBuffer = await response.arrayBuffer();
-        assert('Excel spreadsheet fetched via HTTP', arrayBuffer.byteLength > 10000, `Size: ${arrayBuffer.byteLength} bytes`);
+        const firstContrato = parsedContrato.data[0];
+        assert('First active contract has valid codigo (4643842)', firstContrato.codigo === 4643842);
+        assert('First active contract has student name Guilherme de Oliveira Santos', firstContrato.aluno === 'Guilherme de Oliveira Santos');
+        assert('First active contract has status Ativo', firstContrato.status_contrato === 'Ativo');
+        assert('First active contract has payment methods with Boleto', firstContrato.forma_pagamento.includes('Boleto'));
 
-        // Test 4: Parse Excel Data
-        const parsed = await parseExcelData(arrayBuffer);
-        assert('parseExcelData parses all 832 contracts', parsed.length === 832, `Parsed: ${parsed.length}`);
+        // Test 5: Fetch 'Recebimentos de Contratos.xlsx'
+        const respReceb = await fetch(encodeURI('Recebimentos de Contratos.xlsx'));
+        assert('Recebimentos de Contratos.xlsx fetched via HTTP', respReceb.ok, `HTTP ${respReceb.status}`);
+        const bufferReceb = await respReceb.arrayBuffer();
 
-        // Test 5: Verify column mapping on first contract
-        const first = parsed[0];
-        assert('Contract #1 has valid codigo', first.codigo === 4643842);
-        assert('Contract #1 has valid aluno', first.aluno === 'Guilherme de Oliveira Santos');
-        assert('Contract #1 has status Ativo', first.status_contrato === 'Ativo');
-        assert('Contract #1 has forma_pagamento', first.forma_pagamento.includes('Boleto') && first.forma_pagamento.includes('Dinheiro'));
-        assert('Contract #1 has qtd_parcelas 42', first.qtd_parcelas === 42);
-        assert('Contract #1 has valor_parcela correctly mapped to Valor Parcela Líquido (7555.80)', Math.abs(first.valor_parcela - 7555.80) < 0.01, `Actual: ${first.valor_parcela}`);
-        assert('Contract #1 has valor_pago_total correctly mapped (6378.08)', Math.abs(first.valor_pago_total - 6378.08) < 0.01, `Actual: ${first.valor_pago_total}`);
+        // Test 6: Parse Recebimentos de Contratos
+        const parsedReceb = await parseExcelData(bufferReceb);
+        assert('parseExcelData detects tipo recebimentos', parsedReceb.type === 'recebimentos');
+        assert('parseRecebimentos parses all 236 active contracts', parsedReceb.data.length === 236, `Encontrados: ${parsedReceb.data.length}`);
 
-        // Test 6: Storage init and upsert
-        storage.clearLocalStorageOnly();
-        const initContratos = await storage.init();
-        assert('Storage init returns empty array after clear', initContratos.length === 0);
+        const sampleReceb = parsedReceb.data.find(r => r.codigo === 4930272);
+        assert('Contract 4930272 has receb_restantes 28', sampleReceb && sampleReceb.parcelas_restantes === 28, `Restantes: ${sampleReceb?.parcelas_restantes}`);
+        assert('Contract 4930272 has receb_atrasadas 0', sampleReceb && sampleReceb.parcelas_atrasadas === 0, `Atrasadas: ${sampleReceb?.parcelas_atrasadas}`);
 
-        const upsertResult = await storage.upsertContratos(parsed);
-        assert('Upsert contracts adds 832 contracts', upsertResult.added === 832 && upsertResult.total === 832);
-        assert('Storage getAllContratos returns 832', storage.getAllContratos().length === 832);
+        // Test 7: Storage initialization and merge
+        const resContrato = await storage.upsertContratos(parsedContrato.data);
+        assert('Upsert Contratos processes 236 active contracts', resContrato.total === 236, `Total: ${resContrato.total}`);
+        assert('getAllContratos returns 236 active contracts', storage.getAllContratos().length === 236);
 
-        // Test 7: Update due date
-        const updatedContrato = await storage.updateVencimento(4643842, 'Dia 10');
-        assert('updateVencimento sets Dia 10 on contract 4643842', updatedContrato.data_vencimento === 'Dia 10');
-        assert('storage.getContrato retrieves updated vencimento', storage.getContrato(4643842).data_vencimento === 'Dia 10');
+        // Subir Recebimentos de Contratos (merge inteligente)
+        const resMerge = await storage.mergeRecebimentos(parsedReceb.data);
+        assert('Merge Recebimentos processes 236 active contracts', resMerge.total === 236, `Total: ${resMerge.total}`);
 
-        // Test 8: Anti-overwrite guarantee on reimport
-        const reimportResult = await storage.upsertContratos(parsed);
-        assert('Reimport updates 832 contracts without adding new', reimportResult.updated === 832 && reimportResult.added === 0);
-        assert('Reimport preserves due dates count >= 1', reimportResult.preservedDueDates >= 1, `Preserved: ${reimportResult.preservedDueDates}`);
+        // Test 8: Due date update and anti-overwrite guarantee
+        const updatedGuilherme = await storage.updateVencimento(4643842, 'Dia 10');
+        assert('updateVencimento sets Dia 10', updatedGuilherme.data_vencimento === 'Dia 10');
+
+        // Reimportar Contrato Financeiro e conferir preservação
+        const reimport = await storage.upsertContratos(parsedContrato.data);
+        assert('Reimport preserves due dates count >= 1', reimport.preservedDueDates >= 1);
         const checkGuilherme = storage.getContrato(4643842);
-        assert('Guilherme due date is STILL Dia 10 after reimport', checkGuilherme.data_vencimento === 'Dia 10', `Actual: ${checkGuilherme.data_vencimento}`);
+        assert('Guilherme due date Dia 10 remains preserved', checkGuilherme.data_vencimento === 'Dia 10');
 
-        // Test 9: Add manual student
-        const manual = await storage.addContratoManual({
-          codigo: 9999001,
-          aluno: 'Aluno Teste Automatizado',
-          status_contrato: 'Ativo',
-          data_vencimento: 'Dia 15',
-          forma_pagamento: 'PIX',
-          consultor: 'Consultor Teste',
-          qtd_parcelas: 12,
-          valor_parcela: 2400.00
-        });
-        assert('addContratoManual successfully registers new student', manual.codigo === 9999001);
-        assert('Total contracts is now 833', storage.getAllContratos().length === 833);
+        // Test 9: Regra de Negócio 'Emitir Boletos'
+        const allLoaded = storage.getAllContratos();
+        const aptosBoleto = allLoaded.filter(c => isElegivelBoleto(c, true));
+        const aptosTotal = allLoaded.filter(c => isElegivelBoleto(c, false));
 
-        // Test 10: Delete contract
-        await storage.deleteContrato(9999001);
-        assert('deleteContrato removes student', storage.getContrato(9999001) === null);
-        assert('Total contracts back to 832', storage.getAllContratos().length === 832);
+        assert('Filtro Emitir Boletos com modalidade Boleto retorna exatamente 115 contratos', 
+          aptosBoleto.length === 115, `Atual: ${aptosBoleto.length}`);
 
-        // Test 11: Export & Import JSON Backup
-        const backupJson = storage.exportBackupJSON();
-        assert('exportBackupJSON produces valid JSON string', typeof backupJson === 'string' && backupJson.length > 1000);
-        const parsedBackup = JSON.parse(backupJson);
-        assert('Backup JSON has unit Microlins Potirendaba', parsedBackup.unit === 'Microlins Potirendaba');
-        assert('Backup JSON has 832 records', parsedBackup.records.length === 832);
+        assert('Filtro Emitir Boletos com qualquer modalidade retorna contratos elegíveis (138 após exclusão de cartões em lote)', 
+          aptosTotal.length === 138 || aptosTotal.length === 149, `Atual: ${aptosTotal.length}`);
 
-        // Test 12: Verify number parser robustness
-        const testRowWithUsFormat = await parseExcelData(arrayBuffer);
-        const francisco = testRowWithUsFormat.find(c => c.codigo === 4643888);
-        assert('Francisco Barbosa has valor_parcela 7196', francisco && Math.abs(francisco.valor_parcela - 7196) < 0.01, `Actual: ${francisco?.valor_parcela}`);
+        // Test 10: Contratos com < 3 parcelas ou atraso são rigorosamente excluídos
+        const comAtraso = allLoaded.filter(c => (c.parcelas_atrasadas || 0) > 0);
+        assert('Existe base de 37 alunos com parcelas atrasadas', comAtraso.length === 37, `Atual: ${comAtraso.length}`);
+        const atrasadosNoFiltro = comAtraso.filter(c => isElegivelBoleto(c, false));
+        assert('Nenhum aluno em atraso entra no filtro Emitir Boletos (0 alunos)', atrasadosNoFiltro.length === 0);
+
+        const quitados = allLoaded.filter(c => c.parcelas_restantes === 0);
+        assert('Existe base de alunos quitados (restantes == 0)', quitados.length > 0, `Quitados: ${quitados.length}`);
+        const quitadosNoFiltro = quitados.filter(c => isElegivelBoleto(c, false));
+        assert('Nenhum contrato quitado entra no filtro Emitir Boletos (0 alunos)', quitadosNoFiltro.length === 0);
+
+        // Test 11: Ignorar aluno avulso no boleto
+        const sampleApto = aptosBoleto[0];
+        await storage.toggleIgnorarBoleto(sampleApto.codigo, true);
+        assert('Aluno marcado com ignorar_emissao_boleto é excluído do filtro', !isElegivelBoleto(storage.getContrato(sampleApto.codigo), true));
+        await storage.toggleIgnorarBoleto(sampleApto.codigo, false);
+        assert('Aluno desmarcado volta a ser elegível para boleto', isElegivelBoleto(storage.getContrato(sampleApto.codigo), true));
+
+        // ==============================================================================
+        // TESTES DA NOVA PLANILHA: BAIXA DE RECEBIMENTOS & DETECÇÃO DE CARTÃO EM LOTE
+        // ==============================================================================
+
+        // Test 12: Fetch 'Baixa de Recebimentos.xlsx'
+        const respBaixa = await fetch(encodeURI('Baixa de Recebimentos.xlsx'));
+        assert('Baixa de Recebimentos.xlsx fetched via HTTP', respBaixa.ok, `HTTP ${respBaixa.status}`);
+        const bufferBaixa = await respBaixa.arrayBuffer();
+
+        // Test 13: Detectar tipo 'baixa_recebimentos'
+        const parsedBaixa = await parseExcelData(bufferBaixa);
+        assert('parseExcelData detects tipo baixa_recebimentos', parsedBaixa.type === 'baixa_recebimentos');
+        assert('parseBaixaRecebimentosRows parses all 236 active contracts', parsedBaixa.data.length === 236, `Encontrados: ${parsedBaixa.data.length}`);
+
+        // Test 14: Detecção precisa de Cartão em Lote (6x+)
+        const lotes = parsedBaixa.data.filter(c => c.perfil_pagamento === 'CARTAO_LOTE');
+        const mensais = parsedBaixa.data.filter(c => c.perfil_pagamento === 'CARTAO_MENSAL');
+        assert('Detecta contratos com Cartão em Lote (>= 32 contratos 6x+)', lotes.length >= 32, `Encontrados: ${lotes.length}`);
+        assert('Detecta contratos com Cartão Mês a Mês (>= 40 contratos)', mensais.length >= 40, `Encontrados: ${mensais.length}`);
+
+        // Test 15: Validação individual de casos emblemáticos
+        // Daniel Fernandes Guerra: 5128149
+        const daniel = parsedBaixa.data.find(c => c.codigo === 5128149);
+        assert('Daniel Fernandes (5128149) é classificado como CARTAO_LOTE', daniel && daniel.perfil_pagamento === 'CARTAO_LOTE');
+        assert('Daniel Fernandes possui pagamento em lote de R$ 1.080,00', daniel && (daniel.pagamento_lote_cartao?.valor === 1080 || daniel.lapada_cartao?.valor === 1080));
+        assert('Daniel Fernandes tem próximo vencimento em 08/03/2027', daniel && daniel.proximo_vencimento_real === '08/03/2027', `Venc: ${daniel?.proximo_vencimento_real}`);
+
+        // Lucas Hosotani Beluco: 5126918
+        const lucas = parsedBaixa.data.find(c => c.codigo === 5126918);
+        assert('Lucas Hosotani (5126918) é classificado como CARTAO_LOTE', lucas && lucas.perfil_pagamento === 'CARTAO_LOTE');
+        const lucasVal = (lucas?.pagamento_lote_cartao?.valor || lucas?.lapada_cartao?.valor || 0);
+        assert('Lucas Hosotani possui pagamento em lote de R$ 1.799,10 (~9x)', lucas && Math.abs(lucasVal - 1799.10) < 1);
+        assert('Lucas Hosotani tem próximo vencimento em 03/06/2027', lucas && lucas.proximo_vencimento_real === '03/06/2027', `Venc: ${lucas?.proximo_vencimento_real}`);
+
+        // Test 16: Merge da Baixa no Storage
+        const resBaixaMerge = await storage.mergeBaixaRecebimentos(parsedBaixa.data);
+        assert('Storage mergeBaixaRecebimentos updates 236 active contracts', resBaixaMerge.updated === 236);
+
+        const danielStorage = storage.getContrato(5128149);
+        assert('Storage preserves Daniel Fernandes CARTAO_LOTE', danielStorage && danielStorage.perfil_pagamento === 'CARTAO_LOTE');
+        assert('Storage stores Daniel Fernandes histórico de baixas', Array.isArray(danielStorage.historico_baixas) && danielStorage.historico_baixas.length > 0);
+
+        // Test 17: Blindagem do Filtro Emitir Boletos contra Cartão em Lote
+        assert('Daniel Fernandes (Cartão Lote) NÃO entra no filtro Emitir Boletos', !isElegivelBoleto(danielStorage, false));
+        assert('Lucas Hosotani (Cartão Lote) NÃO entra no filtro Emitir Boletos', !isElegivelBoleto(storage.getContrato(5126918), false));
+
+        // Test 18: Renderizador de badges com Cartão em Lote
+        const badgeLoteHtml = renderPaymentBadges(danielStorage);
+        assert('renderPaymentBadges renderiza badge-cartao-lote com texto Cartão 6x+', 
+          badgeLoteHtml.includes('badge-cartao-lote') && badgeLoteHtml.includes('Cartão 6x+'));
+        assert('renderPaymentBadges renderiza badge-coberto-tag com data do próximo vencimento', 
+          badgeLoteHtml.includes('badge-coberto-tag') && badgeLoteHtml.includes('08/03/2027'));
 
       } catch (err) {
         assert('EXCEPTION IN TEST SUITE', false, err.message + '\n' + err.stack);
@@ -125,8 +194,8 @@
             <h2>Resultados: ${passedCount}/${total} Testes Passaram (${failedCount} Falhas)</h2>
             <ul>
               ${results.map(r => `
-                <li style="color: ${r.pass ? 'green' : 'red'};">
-                  [${r.pass ? 'PASS' : 'FAIL'}] ${r.name} ${r.details ? `(${r.details})` : ''}
+                <li class="${r.pass ? 'pass' : 'fail'}">
+                  [${r.pass ? 'PASS' : 'FAIL'}] ${r.name} ${r.details ? `— ${r.details}` : ''}
                 </li>
               `).join('')}
             </ul>

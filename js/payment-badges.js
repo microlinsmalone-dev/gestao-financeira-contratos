@@ -203,27 +203,60 @@ export function renderSingleBadge(method) {
 }
 
 /**
- * Converte uma string com uma ou mais formas de pagamento separadas por vírgula
- * em um container HTML com todos os badges individuais estilizados.
+ * Converte uma string ou objeto de contrato com formas de pagamento
+ * em um container HTML com badges individuais e indicadores de Cartão em Lote.
  * 
- * Exemplo de entrada: "Boleto, Dinheiro, PIX"
- * Retorna HTML contendo 3 spans com classes correspondentes.
+ * Exemplo de entrada: "Boleto, Dinheiro, PIX" ou objeto contrato com perfil_pagamento
  */
-export function renderPaymentBadges(paymentString) {
-  if (!paymentString || typeof paymentString !== 'string' || !paymentString.trim()) {
-    return `<div class="payment-badges-group">${renderSingleBadge('Sem registro')}</div>`;
+export function renderPaymentBadges(contratoOrString) {
+  let paymentString = '';
+  let contrato = null;
+
+  if (contratoOrString && typeof contratoOrString === 'object') {
+    contrato = contratoOrString;
+    paymentString = contrato.forma_pagamento || '';
+  } else if (typeof contratoOrString === 'string') {
+    paymentString = contratoOrString;
   }
 
-  const rawTokens = paymentString.split(',');
+  const rawTokens = paymentString ? paymentString.split(',') : [];
   const seenKeys = new Set();
   const badgesHtml = [];
 
+  // 1. Badge Especial de Cartão em Lote (Lapada 6x+)
+  if (contrato && contrato.perfil_pagamento === 'CARTAO_LOTE') {
+    const lapada = contrato.lapada_cartao;
+    const lapadaDesc = lapada
+      ? `Passou R$ ${lapada.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (${lapada.equiv_parcelas}x) em ${lapada.data}.`
+      : 'Paga no cartão de crédito em lotes de no mínimo 6 parcelas.';
+    const vencDesc = contrato.proximo_vencimento_real
+      ? ` Próximo vencimento só em ${contrato.proximo_vencimento_real}.`
+      : '';
+
+    badgesHtml.push(`
+      <span class="badge-cartao-lote" title="${lapadaDesc}${vencDesc}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        <span>Cartão 6x+</span>
+      </span>
+    `);
+    seenKeys.add('cartao-credito');
+  } else if (contrato && contrato.perfil_pagamento === 'CARTAO_MENSAL') {
+    badgesHtml.push(`
+      <span class="badge-cartao-mensal" title="Pagamento mensal no cartão (1 a 2 parcelas por mês)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
+        <span>Cartão Mensal</span>
+      </span>
+    `);
+    seenKeys.add('cartao-credito');
+    seenKeys.add('cartao-debito');
+  }
+
+  // 2. Badges normais mapeados das modalidades cadastradas
   for (const token of rawTokens) {
     const trimmed = token.trim();
     if (!trimmed) continue;
     
     const config = getBadgeConfig(trimmed);
-    // Evita duplicatas visuais na mesma linha (ex: "PIX, PIX")
     if (!seenKeys.has(config.key)) {
       seenKeys.add(config.key);
       badgesHtml.push(renderSingleBadge(trimmed));
@@ -231,8 +264,26 @@ export function renderPaymentBadges(paymentString) {
   }
 
   if (badgesHtml.length === 0) {
-    return `<div class="payment-badges-group">${renderSingleBadge('Sem registro')}</div>`;
+    badgesHtml.push(renderSingleBadge('Sem registro'));
   }
 
-  return `<div class="payment-badges-group">${badgesHtml.join('')}</div>`;
+  // 3. Indicador de cobertura se estiver coberto por pagamento em lote
+  let cobertoHtml = '';
+  if (contrato && contrato.perfil_pagamento === 'CARTAO_LOTE' && contrato.proximo_vencimento_real) {
+    cobertoHtml = `
+      <span class="badge-coberto-tag" title="O aluno já pagou antecipadamente. Próxima cobrança apenas em ${contrato.proximo_vencimento_real}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10" style="vertical-align: -1px;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <span>Coberto até ${contrato.proximo_vencimento_real}</span>
+      </span>
+    `;
+  }
+
+  return `
+    <div class="payment-badges-group" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px;">
+      <div style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center;">
+        ${badgesHtml.join('')}
+      </div>
+      ${cobertoHtml}
+    </div>
+  `;
 }
