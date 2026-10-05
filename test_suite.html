@@ -143,11 +143,15 @@
         assert('parseExcelData detects tipo baixa_recebimentos', parsedBaixa.type === 'baixa_recebimentos');
         assert('parseBaixaRecebimentosRows parses all 236 active contracts', parsedBaixa.data.length === 236, `Encontrados: ${parsedBaixa.data.length}`);
 
-        // Test 14: Detecção precisa de Cartão em Lote (6x+)
+        // Test 14: Detecção precisa de Cartão em Lote (6x+) e Cartão Mensal consistente
         const lotes = parsedBaixa.data.filter(c => c.perfil_pagamento === 'CARTAO_LOTE');
         const mensais = parsedBaixa.data.filter(c => c.perfil_pagamento === 'CARTAO_MENSAL');
         assert('Detecta contratos com Cartão em Lote (>= 32 contratos 6x+)', lotes.length >= 32, `Encontrados: ${lotes.length}`);
-        assert('Detecta contratos com Cartão Mês a Mês (>= 40 contratos)', mensais.length >= 40, `Encontrados: ${mensais.length}`);
+        assert('Detecta contratos com Cartão Mês a Mês consistente nas parcelas (exclusivo parcelas)', mensais.length >= 1, `Encontrados: ${mensais.length}`);
+
+        // Regra de Negócio: Matrícula no cartão NÃO qualifica aluno como Cartão Mensal
+        const geovane = parsedBaixa.data.find(c => c.codigo === 4902775);
+        assert('Geovane Rafael (4902775) pagou matrícula no cartão de débito mas NÃO é CARTAO_MENSAL', geovane && geovane.perfil_pagamento !== 'CARTAO_MENSAL');
 
         // Test 15: Validação individual de casos emblemáticos
         // Daniel Fernandes Guerra: 5128149
@@ -175,12 +179,17 @@
         assert('Daniel Fernandes (Cartão Lote) NÃO entra no filtro Emitir Boletos', !isElegivelBoleto(danielStorage, false));
         assert('Lucas Hosotani (Cartão Lote) NÃO entra no filtro Emitir Boletos', !isElegivelBoleto(storage.getContrato(5126918), false));
 
-        // Test 18: Renderizador de badges com Cartão em Lote
+        // Test 18: Renderizador de badges com Cartão em Lote e proteção contra Matrícula
         const badgeLoteHtml = renderPaymentBadges(danielStorage);
         assert('renderPaymentBadges renderiza badge-cartao-lote com texto Cartão 6x+', 
           badgeLoteHtml.includes('badge-cartao-lote') && badgeLoteHtml.includes('Cartão 6x+'));
         assert('renderPaymentBadges renderiza badge-coberto-tag com data do próximo vencimento', 
           badgeLoteHtml.includes('badge-coberto-tag') && badgeLoteHtml.includes('08/03/2027'));
+
+        const geovaneStorage = storage.getContrato(4902775);
+        const geovaneBadges = renderPaymentBadges(geovaneStorage);
+        assert('Geovane Rafael (matrícula no cartão) NÃO exibe badge-cartao-mensal e mantém Boleto/PIX',
+          !geovaneBadges.includes('badge-cartao-mensal') && geovaneBadges.includes('badge-pix'));
 
       } catch (err) {
         assert('EXCEPTION IN TEST SUITE', false, err.message + '\n' + err.stack);

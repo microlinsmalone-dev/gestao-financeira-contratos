@@ -467,41 +467,53 @@ export function parseBaixaRecebimentosRows(rawRows) {
     // Analisa pagamentos realizados
     const paidRows = [];
     const unpaidRows = [];
-    const cardByDay = new Map();
+    const cardParcelasByDay = new Map();
     let totalPagoAcumulado = 0;
-    const totalsByForma = {};
+    const totalsByFormaParcelas = {};
+    const paidParcelas = [];
 
     for (const r of rows) {
       const vp = parseSafeNumber(r[headerMap.valor_pago]);
       const isPaid = vp !== null && vp > 0;
       const forma = headerMap.forma_pag ? String(r[headerMap.forma_pag] || '').trim() : 'Outro';
+      const tipo = headerMap.tipo_receb ? String(r[headerMap.tipo_receb] || '').trim().toLowerCase() : '';
+      const isParcela = tipo.includes('parcela');
 
       if (isPaid) {
         paidRows.push(r);
         totalPagoAcumulado += vp;
-        totalsByForma[forma] = (totalsByForma[forma] || 0) + vp;
 
-        const isCard = forma.toLowerCase().includes('cart') || forma.toLowerCase().includes('credito') || forma.toLowerCase().includes('debito');
-        if (isCard) {
-          const dtRaw = r[headerMap.pagamento] || r[headerMap.lancamento] || '';
-          const dtKey = formatExcelDate(dtRaw) || 'Data não informada';
-          if (!cardByDay.has(dtKey)) {
-            cardByDay.set(dtKey, []);
+        // REGRA CRÍTICA: Somente recebimentos do tipo 'Parcela' definem a forma de pagamento mensal!
+        // Matrícula, Material, Uniforme e taxas não definem a modalidade das mensalidades.
+        if (isParcela) {
+          paidParcelas.push(r);
+          totalsByFormaParcelas[forma] = (totalsByFormaParcelas[forma] || 0) + vp;
+
+          const isCard = forma.toLowerCase().includes('cart') || forma.toLowerCase().includes('credito') || forma.toLowerCase().includes('debito');
+          if (isCard) {
+            const dtRaw = r[headerMap.pagamento] || r[headerMap.lancamento] || '';
+            const dtKey = formatExcelDate(dtRaw) || 'Data não informada';
+            if (!cardParcelasByDay.has(dtKey)) {
+              cardParcelasByDay.set(dtKey, []);
+            }
+            cardParcelasByDay.get(dtKey).push({
+              valor: vp,
+              ordem: r[headerMap.ordem],
+              tipo: r[headerMap.tipo_receb]
+            });
           }
-          cardByDay.get(dtKey).push({
-            valor: vp,
-            ordem: r[headerMap.ordem],
-            tipo: r[headerMap.tipo_receb]
-          });
         }
       } else {
-        unpaidRows.push(r);
+        // Apenas parcelas não pagas contam como parcelas restantes/abertas
+        if (isParcela || !tipo) {
+          unpaidRows.push(r);
+        }
       }
     }
 
     // Identificação de Pagamentos em Lote no Cartão (>= 6x parcelas ou >= R$ 1.000 no mesmo dia)
     const pagamentosLote = [];
-    for (const [dtKey, items] of cardByDay.entries()) {
+    for (const [dtKey, items] of cardParcelasByDay.entries()) {
       const totDay = items.reduce((acc, it) => acc + it.valor, 0);
       const equiv = baseParcela > 0 ? totDay / baseParcela : items.length;
 
@@ -529,16 +541,25 @@ export function parseBaixaRecebimentosRows(rawRows) {
         equiv_parcelas: pagamentosLote[0].equiv_parcelas,
         total_lotes: pagamentosLote.length
       };
-    } else if (cardByDay.size > 0) {
-      perfilPagamento = 'CARTAO_MENSAL';
-    } else if (Object.keys(totalsByForma).length > 0) {
-      // Determina forma predominante
-      const topMethod = Object.entries(totalsByForma).sort((a, b) => b[1] - a[1])[0][0].toLowerCase();
-      if (topMethod.includes('boleto')) perfilPagamento = 'BOLETO';
-      else if (topMethod.includes('pix')) perfilPagamento = 'PIX';
-      else if (topMethod.includes('dinheiro')) perfilPagamento = 'DINHEIRO';
-      else if (topMethod.includes('deposito')) perfilPagamento = 'DEPOSITO';
-      else perfilPagamento = 'OUTROS';
+    } else if (paidParcelas.length > 0) {
+      // Conta parcelas pagas no cartão
+      const cardParcelasCount = Array.from(cardParcelasByDay.values()).reduce((acc, it) => acc + it.length, 0);
+
+      // REGRA DE NEGÓCIO: Quem paga cartão mensal deve pagar consistentemente suas parcelas
+      // no cartão, mês a mês, sem mudar essa perspectiva (100% das parcelas pagas no cartão).
+      if (cardParcelasCount === paidParcelas.length) {
+        perfilPagamento = 'CARTAO_MENSAL';
+      } else if (Object.keys(totalsByFormaParcelas).length > 0) {
+        // Determina a forma predominante real das parcelas
+        const topMethod = Object.entries(totalsByFormaParcelas).sort((a, b) => b[1] - a[1])[0][0].toLowerCase();
+        if (topMethod.includes('boleto')) perfilPagamento = 'BOLETO';
+        else if (topMethod.includes('pix')) perfilPagamento = 'PIX';
+        else if (topMethod.includes('dinheiro')) perfilPagamento = 'DINHEIRO';
+        else if (topMethod.includes('deposito')) perfilPagamento = 'DEPOSITO';
+        else perfilPagamento = 'OUTROS';
+      }
+    } else if (Object.keys(totalsByFormaParcelas).length > 0) {
+      perfilPagamento = 'BOLETO';
     }
 
     // Próximo vencimento real (a menor data entre parcelas em aberto)
